@@ -56,6 +56,20 @@ public class RedisChatMemory implements ChatMemory {
     }
 
     @Override
+    public List<Message> get(String convId) {
+        String key = KEY_PREFIX + convId;
+        List<String> raw;
+        try { raw = redis.opsForList().range(key, 0, -1); } catch (Exception e) { return List.of(); }
+        if (raw == null) return List.of();
+        List<Message> msgs = new ArrayList<>();
+        for (String r : raw) {
+            try { Message m = mapper.readValue(r, StoredMessage.class).toMessage(); if (m != null) msgs.add(m); }
+            catch (Exception ignored) {}
+        }
+        return msgs;
+    }
+
+    @Override
     public void clear(String convId) { try { redis.delete(KEY_PREFIX + convId); } catch (Exception e) { log.error("Clear failed", e); } }
 
     private static class StoredMessage {

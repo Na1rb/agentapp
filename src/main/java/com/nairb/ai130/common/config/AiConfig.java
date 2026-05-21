@@ -5,15 +5,14 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.client.advisor.MessageChatMemoryAdvisor;
-import org.springframework.ai.chat.client.advisor.QuestionAnswerAdvisor;
 import org.springframework.ai.chat.client.advisor.SimpleLoggerAdvisor;
-import org.springframework.ai.openai.OpenAiApi;
+import org.springframework.ai.model.ApiKey;
+import org.springframework.ai.openai.api.OpenAiApi;
 import org.springframework.ai.openai.OpenAiChatModel;
 import org.springframework.ai.openai.OpenAiChatOptions;
 import org.springframework.ai.openai.OpenAiEmbeddingModel;
 import org.springframework.ai.transformer.splitter.TextSplitter;
 import org.springframework.ai.transformer.splitter.TokenTextSplitter;
-import org.springframework.ai.vectorstore.SearchRequest;
 import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.ai.vectorstore.pgvector.PgVectorStore;
 import org.springframework.beans.factory.annotation.Value;
@@ -42,7 +41,7 @@ public class AiConfig {
 
     @Bean
     public TextSplitter textSplitter() {
-        return new TokenTextSplitter(100, 500, 50, 10000, true);
+        return new TokenTextSplitter(100, 500, 50, 10000, true, true);
     }
 
     // ==================== 向量存储 (PgVector) ====================
@@ -93,16 +92,22 @@ public class AiConfig {
     private String deepseekBaseUrl;
 
     @Value("${spring.deepseek.openai.api-key:}")
-    private String deepseekApiKey;
+    private ApiKey deepseekApiKey;
 
     @Bean("deepseekChatClient")
     public ChatClient deepseekChatClient(RedisChatMemory redisChatMemory) {
-        OpenAiApi deepseekApi = new OpenAiApi(deepseekBaseUrl, deepseekApiKey);
-        OpenAiChatModel deepseekModel = new OpenAiChatModel(deepseekApi,
-                OpenAiChatOptions.builder()
+        OpenAiApi deepseekApi = OpenAiApi.builder()
+                .baseUrl(deepseekBaseUrl)
+                .apiKey(deepseekApiKey)
+                .build();
+        
+        OpenAiChatModel deepseekModel = OpenAiChatModel.builder()
+                .openAiApi(deepseekApi)
+                .defaultOptions(OpenAiChatOptions.builder()
                         .model("deepseek-chat")
                         .temperature(0.7)
-                        .build());
+                        .build())
+                .build();
 
         return ChatClient.builder(deepseekModel)
                 .defaultAdvisors(
