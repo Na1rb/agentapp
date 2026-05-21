@@ -30,13 +30,23 @@ public class DocumentController {
     public DocumentController(DocumentAppService docService, LocalFileStorage storage) { this.docService = docService; this.storage = storage; }
 
     @PostMapping("/upload")
-    public ResponseEntity<ApiResponse<UploadResponse>> upload(@RequestParam("file") MultipartFile file) {
+    public ResponseEntity<ApiResponse<UploadResponse>> upload(@RequestParam("file") MultipartFile file, @RequestParam(value = "kbId", required = false) String kbId) {
         String name = file.getOriginalFilename();
         if (name == null || name.isEmpty()) return ResponseEntity.badRequest().body(ApiResponse.badRequest("File name empty"));
         String ext = name.substring(name.lastIndexOf('.') + 1).toLowerCase();
         if (!SUPPORTED.contains(ext)) return ResponseEntity.badRequest().body(ApiResponse.badRequest("Unsupported: ." + ext));
-        try { return ResponseEntity.ok(ApiResponse.success("Upload succeeded", docService.upload(file, ext))); }
+        try { return ResponseEntity.ok(ApiResponse.success("Upload succeeded", docService.upload(file, ext, kbId))); }
         catch (Exception e) { log.error("Upload failed", e); return ResponseEntity.internalServerError().body(ApiResponse.serverError(e.getMessage())); }
+    }
+
+    @DeleteMapping("/delete/{chatId}")
+    public ResponseEntity<ApiResponse<Void>> deleteDocument(@PathVariable String chatId) {
+        try {
+            docService.deleteDocument(chatId);
+            return ResponseEntity.ok(ApiResponse.success("Document deleted successfully", null));
+        } catch (Exception e) {
+            return ResponseEntity.internalServerError().body(ApiResponse.serverError(e.getMessage()));
+        }
     }
 
     @GetMapping("/download/{chatId}")

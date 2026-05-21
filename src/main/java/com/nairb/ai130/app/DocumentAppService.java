@@ -10,6 +10,7 @@ import org.springframework.ai.document.Document;
 import org.springframework.ai.transformer.splitter.TextSplitter;
 import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -25,24 +26,28 @@ public class DocumentAppService {
     private final VectorStore vectorStore;
     private final TextSplitter textSplitter;
     private final LocalFileStorage fileStorage;
+    private final JdbcTemplate jdbcTemplate;
 
     public DocumentAppService(@Qualifier("pdfReader") DocumentReader pdfReader,
                               @Qualifier("tikaReader") DocumentReader tikaReader,
-                              VectorStore vectorStore, TextSplitter textSplitter, LocalFileStorage fileStorage) {
+                              VectorStore vectorStore, TextSplitter textSplitter, LocalFileStorage fileStorage,
+                              JdbcTemplate jdbcTemplate) {
         this.pdfReader = pdfReader; this.tikaReader = tikaReader;
         this.vectorStore = vectorStore; this.textSplitter = textSplitter; this.fileStorage = fileStorage;
+        this.jdbcTemplate = jdbcTemplate;
     }
 
-    public UploadResponse upload(MultipartFile file, String ext) {
+    public UploadResponse upload(MultipartFile file, String ext, String kbId) {
         String fileName = file.getOriginalFilename();
         DocumentReader reader = "pdf".equals(ext) ? pdfReader : tikaReader;
         List<Document> docs = reader.read(file.getResource());
         log.info("Parsed {} ({}): {} segments", fileName, ext, docs.size());
 
         String chatId = UUID.randomUUID().toString();
+        String targetKbId = (kbId != null && !kbId.isEmpty()) ? kbId : "default_kb";
         List<Document> metaDocs = docs.stream().map(d -> {
             Map<String, Object> m = new HashMap<>(d.getMetadata() != null ? d.getMetadata() : Map.of());
-            m.put("file_name", fileName); m.put("chat_id", chatId);
+            m.put("file_name", fileName); m.put("chat_id", chatId); m.put("kb_id", targetKbId);
             return new Document(d.getId(), d.getText(), m);
         }).collect(Collectors.toList());
 
@@ -51,5 +56,11 @@ public class DocumentAppService {
         for (int i = 0; i < split.size(); i += batch) vectorStore.add(split.subList(i, Math.min(i + batch, split.size())));
         if (!fileStorage.save(chatId, file)) throw new BusinessException("Failed to save file");
         return new UploadResponse(chatId, fileName, split.size());
+    }
+
+    public void deleteDocument(String chatId) {
+        try { jdbcTemplate.update("DELETE FROM document_embeddings WHERE metadata->>'chat_id' = ?", chatId); } catch (Exception e) { log.warn("Failed to delete from document_embeddings", e); }
+        try { jdbcTemplate.update("DELETE FROM vector_store WHERE metadata->>'chat_id' = ?", chatId); } catch (Exception e) { log.warn("Failed to delete from vector_store", e); }
+        fileStorage.deleteFile(chatId);
     }
 }

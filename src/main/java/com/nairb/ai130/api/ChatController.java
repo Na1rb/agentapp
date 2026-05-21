@@ -20,8 +20,9 @@ public class ChatController {
 
     @GetMapping("/dchat")
     public Flux<String> dchat(@RequestParam("prompt") String prompt,
-                              @RequestParam(value = "chatId", required = false) String chatId) {
+                              @RequestParam(value = "chatId", required = false) String chatId,
+                              @RequestParam(value = "kbId", required = false) String kbId) {
         String sessionId = (chatId != null && !chatId.isEmpty()) ? chatId : UUID.randomUUID().toString();
-        return chatService.streamChat(prompt, sessionId);
+        return chatService.streamChat(prompt, sessionId, kbId);
     }
 }

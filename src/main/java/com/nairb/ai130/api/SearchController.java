@@ -24,8 +24,9 @@ public class SearchController {
     public ResponseEntity<ApiResponse<List<SearchResultVO>>> fuzzySearch(
             @RequestParam("query") String query,
             @RequestParam(required = false) String chatId,
+            @RequestParam(value = "kbId", required = false) String kbId,
             @RequestParam(defaultValue = "5") int topK) {
-        try { return ResponseEntity.ok(ApiResponse.success(searchService.fuzzySearch(query, chatId, topK))); }
+        try { return ResponseEntity.ok(ApiResponse.success(searchService.fuzzySearch(query, chatId, kbId, topK))); }
         catch (Exception e) { return ResponseEntity.badRequest().body(ApiResponse.badRequest(e.getMessage())); }
     }
 }

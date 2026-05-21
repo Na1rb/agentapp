@@ -3,7 +3,11 @@ package com.nairb.ai130.app;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.client.advisor.QuestionAnswerAdvisor;
 import org.springframework.ai.openai.OpenAiChatOptions;
+import org.springframework.ai.vectorstore.SearchRequest;
+import org.springframework.ai.vectorstore.VectorStore;
+import org.springframework.ai.vectorstore.filter.FilterExpressionBuilder;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -17,6 +21,7 @@ public class ChatAppService {
 
     private final ChatClient primaryClient;
     private final ChatClient fallbackClient;
+    private final VectorStore vectorStore;
 
     @Value("${spring.ai.openai.chat.options.model:qwen-plus}")
     private String primaryModel;
@@ -24,15 +29,17 @@ public class ChatAppService {
     private String fallbackModel;
 
     public ChatAppService(ChatClient primaryClient,
-                          @Qualifier("deepseekChatClient") ChatClient fallbackClient) {
+                          @Qualifier("deepseekChatClient") ChatClient fallbackClient,
+                          VectorStore vectorStore) {
         this.primaryClient = primaryClient; this.fallbackClient = fallbackClient;
+        this.vectorStore = vectorStore;
     }
 
-    public Flux<String> streamChat(String prompt, String sessionId) {
+    public Flux<String> streamChat(String prompt, String sessionId, String kbId) {
         AtomicBoolean primaryFailed = new AtomicBoolean(false);
         AtomicBoolean hasOutput = new AtomicBoolean(false);
 
-        Flux<String> primary = streamByModel(prompt, sessionId, primaryModel)
+        Flux<String> primary = streamByModel(prompt, sessionId, kbId, primaryModel)
                 .doOnNext(c -> hasOutput.set(true))
                 .doOnError(e -> { primaryFailed.set(true); log.warn("Primary failed: {}", e.getMessage()); })
                 .onErrorResume(e -> Flux.empty());
@@ -41,7 +48,7 @@ public class ChatAppService {
             if (primaryFailed.get() || !hasOutput.get()) {
                 log.info("Fallback to [{}]", fallbackModel);
                 return Flux.concat(Flux.just("\n[Primary unavailable, switched to fallback]\n"),
-                        streamByModel(prompt, sessionId, fallbackModel));
+                        streamByModel(prompt, sessionId, kbId, fallbackModel));
             }
             return Flux.empty();
         }).onErrorResume(e -> Flux.just("Both models unavailable."));
@@ -49,13 +56,23 @@ public class ChatAppService {
         return Flux.concat(primary, fallback).switchIfEmpty(Flux.just("Service unavailable."));
     }
 
-    private Flux<String> streamByModel(String prompt, String sessionId, String model) {
+    private Flux<String> streamByModel(String prompt, String sessionId, String kbId, String model) {
         ChatClient client = fallbackModel.equalsIgnoreCase(model) ? fallbackClient : primaryClient;
+        String targetKbId = (kbId != null && !kbId.isEmpty()) ? kbId : "default_kb";
+
+        SearchRequest.Builder requestBuilder = SearchRequest.builder()
+                .similarityThreshold(0.5)
+                .topK(3);
+        if (targetKbId != null && !targetKbId.isEmpty()) {
+            requestBuilder.filterExpression(new FilterExpressionBuilder().eq("kb_id", targetKbId).build());
+        }
+
         return client.prompt()
                 .system(s -> s.text("你是一个智能助手。\n1. 理解用户意图，包括同音错别字。\n2. 基于上下文回答问题。\n3. 如无相关信息则如实说明。"))
                 .user(prompt)
                 .options(OpenAiChatOptions.builder().model(model).temperature(0.7).build())
                 .advisors(a -> a.param("conversation_id", sessionId).param("retrieve_size", 10))
+                .advisors(new QuestionAnswerAdvisor(vectorStore, requestBuilder.build()))
                 .stream().content();
     }
 }

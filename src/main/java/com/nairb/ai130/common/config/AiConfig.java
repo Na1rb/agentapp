@@ -78,19 +78,11 @@ public class AiConfig {
 
     @Bean
     public ChatClient chatClient(OpenAiChatModel model,
-                                 RedisChatMemory redisChatMemory,
-                                 VectorStore vectorStore) {
+                                 RedisChatMemory redisChatMemory) {
         return ChatClient.builder(model)
                 .defaultAdvisors(
                         new SimpleLoggerAdvisor(),
-                        MessageChatMemoryAdvisor.builder(redisChatMemory).build(),
-                        new QuestionAnswerAdvisor(
-                                vectorStore,
-                                SearchRequest.builder()
-                                        .similarityThreshold(0.5)
-                                        .topK(3)
-                                        .build()
-                        )
+                        MessageChatMemoryAdvisor.builder(redisChatMemory).build()
                 )
                 .build();
     }
@@ -104,7 +96,7 @@ public class AiConfig {
     private String deepseekApiKey;
 
     @Bean("deepseekChatClient")
-    public ChatClient deepseekChatClient(RedisChatMemory redisChatMemory, VectorStore vectorStore) {
+    public ChatClient deepseekChatClient(RedisChatMemory redisChatMemory) {
         OpenAiApi deepseekApi = new OpenAiApi(deepseekBaseUrl, deepseekApiKey);
         OpenAiChatModel deepseekModel = new OpenAiChatModel(deepseekApi,
                 OpenAiChatOptions.builder()
@@ -115,14 +107,7 @@ public class AiConfig {
         return ChatClient.builder(deepseekModel)
                 .defaultAdvisors(
                         new SimpleLoggerAdvisor(),
-                        MessageChatMemoryAdvisor.builder(redisChatMemory).build(),
-                        new QuestionAnswerAdvisor(
-                                vectorStore,
-                                SearchRequest.builder()
-                                        .similarityThreshold(0.5)
-                                        .topK(3)
-                                        .build()
-                        )
+                        MessageChatMemoryAdvisor.builder(redisChatMemory).build()
                 )
                 .build();
     }
