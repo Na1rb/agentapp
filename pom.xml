@@ -63,9 +63,12 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-web</artifactId>
         </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-webflux</artifactId>
+        </dependency>
 
         <!-- 2. Spring AI 核心模块 (Core Components) -->
-        <!-- 包含你提到的通用工具、模板、模型接口、RAG、切面、重试、客户端、MCP等 -->
         <dependency>
             <groupId>org.springframework.ai</groupId>
             <artifactId>spring-ai-commons</artifactId>
@@ -95,7 +98,30 @@
             <artifactId>spring-ai-mcp</artifactId>
         </dependency>
 
-        <!-- 3. 文档读取器 (Document Readers) -->
+        <!-- 大模型 Starter (Autoconfigure) -->
+        <!-- OpenAI (已包含底层依赖)
+
+
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-openai-spring-boot-starter</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-pgvector-store-spring-boot-starter</artifactId>
+        </dependency>
+        <!- - Spring AI Advanced RAG 模块 -->
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-rag</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-advisors-vector-store</artifactId>
+        </dependency>
+
+        <!-- 4. 文档读取与处理 -->
         <dependency>
             <groupId>org.springframework.ai</groupId>
             <artifactId>spring-ai-pdf-document-reader</artifactId>
@@ -104,28 +130,23 @@
             <groupId>org.springframework.ai</groupId>
             <artifactId>spring-ai-tika-document-reader</artifactId>
         </dependency>
-        <!-- 4. 大模型 Starter (Autoconfigure) -->
-        <!-- OpenAI -->
-        <dependency>
-            <groupId>org.springframework.ai</groupId>
-            <artifactId>spring-ai-openai</artifactId>
-        </dependency>
 
         <dependency>
             <groupId>org.springframework.ai</groupId>
             <artifactId>spring-ai-deepseek</artifactId>
         </dependency>
 
-        <!-- 5. 向量数据库与 Chat Memory -->
-        <!-- Redis (用于 Chat Memory 和 Vector Store) -->
+        <!-- 5. 记忆存储与基础组件 -->
+        <!-- Redis (用于 Chat Memory) -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-data-redis</artifactId>
         </dependency>
-        <!-- PgVector (PostgreSQL Vector) -->
+
+        <!-- MCP (Model Context Protocol) 客户端 -->
         <dependency>
             <groupId>org.springframework.ai</groupId>
-            <artifactId>spring-ai-pgvector-store</artifactId>
+            <artifactId>spring-ai-starter-mcp-client-webflux</artifactId>
         </dependency>
 
         <!-- JDBC 支持 (用于 JdbcTemplate) -->

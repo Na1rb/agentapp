@@ -3,6 +3,7 @@ package com.nairb.ai130.api;
 import com.nairb.ai130.app.ChatAppService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Flux;
 
@@ -18,10 +19,11 @@ public class ChatController {
 
     public ChatController(ChatAppService chatService) { this.chatService = chatService; }
 
-    @GetMapping("/dchat")
+    @GetMapping(value = "/dchat", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public Flux<String> dchat(@RequestParam("prompt") String prompt,
+                              @RequestParam(value = "kbId", required = false) String kbId,
                               @RequestParam(value = "chatId", required = false) String chatId) {
         String sessionId = (chatId != null && !chatId.isEmpty()) ? chatId : UUID.randomUUID().toString();
-        return chatService.streamChat(prompt, sessionId);
+        return chatService.streamChat(prompt, sessionId, kbId);
     }
 }
