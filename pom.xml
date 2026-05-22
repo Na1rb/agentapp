@@ -18,6 +18,7 @@
     <name>ai130</name>
     <description>AI Application with Spring AI 1.1.4</description>
 
+
     <properties>
         <java.version>17</java.version>
         <!-- 显式声明 Spring AI 版本，便于维护 -->
@@ -99,19 +100,11 @@
         </dependency>
 
         <!-- 大模型 Starter (Autoconfigure) -->
-        <!-- OpenAI (已包含底层依赖)
-
-
         <dependency>
             <groupId>org.springframework.ai</groupId>
-            <artifactId>spring-ai-openai-spring-boot-starter</artifactId>
+            <artifactId>spring-ai-openai</artifactId>
         </dependency>
-
-        <dependency>
-            <groupId>org.springframework.ai</groupId>
-            <artifactId>spring-ai-pgvector-store-spring-boot-starter</artifactId>
-        </dependency>
-        <!- - Spring AI Advanced RAG 模块 -->
+        <!-- Spring AI Advanced RAG 模块 -->
         <dependency>
             <groupId>org.springframework.ai</groupId>
             <artifactId>spring-ai-rag</artifactId>
@@ -119,6 +112,11 @@
         <dependency>
             <groupId>org.springframework.ai</groupId>
             <artifactId>spring-ai-advisors-vector-store</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-pgvector-store</artifactId>
         </dependency>
 
         <!-- 4. 文档读取与处理 -->
@@ -129,11 +127,6 @@
         <dependency>
             <groupId>org.springframework.ai</groupId>
             <artifactId>spring-ai-tika-document-reader</artifactId>
-        </dependency>
-
-        <dependency>
-            <groupId>org.springframework.ai</groupId>
-            <artifactId>spring-ai-deepseek</artifactId>
         </dependency>
 
         <!-- 5. 记忆存储与基础组件 -->

@@ -50,7 +50,11 @@ public class SessionAppService {
     }
 
     public List<MessageVO> messages(String chatId, int limit) {
-        return memory.get(chatId, limit).stream().map(m -> {
+        var msgs = memory.get(chatId);
+        if (msgs != null && msgs.size() > limit) {
+            msgs = msgs.subList(msgs.size() - limit, msgs.size());
+        }
+        return (msgs == null ? java.util.Collections.<org.springframework.ai.chat.messages.Message>emptyList() : msgs).stream().map(m -> {
             String role = m.getMessageType() == org.springframework.ai.chat.messages.MessageType.USER ? "user" : "assistant";
             return new MessageVO(role, m.getText() != null ? m.getText() : "");
         }).toList();

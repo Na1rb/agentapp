@@ -5,12 +5,12 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.client.advisor.MessageChatMemoryAdvisor;
-import org.springframework.ai.chat.client.advisor.QuestionAnswerAdvisor;
 import org.springframework.ai.chat.client.advisor.SimpleLoggerAdvisor;
-import org.springframework.ai.openai.OpenAiApi;
+import org.springframework.ai.chat.client.advisor.vectorstore.QuestionAnswerAdvisor;
 import org.springframework.ai.openai.OpenAiChatModel;
 import org.springframework.ai.openai.OpenAiChatOptions;
 import org.springframework.ai.openai.OpenAiEmbeddingModel;
+import org.springframework.ai.openai.api.OpenAiApi;
 import org.springframework.ai.transformer.splitter.TextSplitter;
 import org.springframework.ai.transformer.splitter.TokenTextSplitter;
 import org.springframework.ai.vectorstore.SearchRequest;
@@ -42,7 +42,7 @@ public class AiConfig {
 
     @Bean
     public TextSplitter textSplitter() {
-        return new TokenTextSplitter(100, 500, 50, 10000, true);
+        return new TokenTextSplitter();
     }
 
     // ==================== 向量存储 (PgVector) ====================
@@ -77,20 +77,17 @@ public class AiConfig {
     // ==================== 主用模型 ChatClient (阿里云 Qwen) ====================
 
     @Bean
-    public ChatClient chatClient(OpenAiChatModel model,
-                                 RedisChatMemory redisChatMemory,
-                                 VectorStore vectorStore) {
-        return ChatClient.builder(model)
+    public ChatClient.Builder chatClientBuilder(OpenAiChatModel openAiChatModel) {
+        return ChatClient.builder(openAiChatModel);
+    }
+
+    @Bean
+    public ChatClient chatClient(ChatClient.Builder chatClientBuilder,
+                                 RedisChatMemory redisChatMemory) {
+        return chatClientBuilder
                 .defaultAdvisors(
                         new SimpleLoggerAdvisor(),
-                        MessageChatMemoryAdvisor.builder(redisChatMemory).build(),
-                        new QuestionAnswerAdvisor(
-                                vectorStore,
-                                SearchRequest.builder()
-                                        .similarityThreshold(0.5)
-                                        .topK(3)
-                                        .build()
-                        )
+                        MessageChatMemoryAdvisor.builder(redisChatMemory).build()
                 )
                 .build();
     }
@@ -104,25 +101,26 @@ public class AiConfig {
     private String deepseekApiKey;
 
     @Bean("deepseekChatClient")
-    public ChatClient deepseekChatClient(RedisChatMemory redisChatMemory, VectorStore vectorStore) {
-        OpenAiApi deepseekApi = new OpenAiApi(deepseekBaseUrl, deepseekApiKey);
-        OpenAiChatModel deepseekModel = new OpenAiChatModel(deepseekApi,
-                OpenAiChatOptions.builder()
-                        .model("deepseek-chat")
-                        .temperature(0.7)
-                        .build());
+    public ChatClient deepseekChatClient(RedisChatMemory redisChatMemory) {
+        // 使用新版的 Builder 模式来构建 OpenAiApi
+        OpenAiApi deepseekApi = OpenAiApi.builder()
+                .baseUrl(deepseekBaseUrl)
+                .apiKey(deepseekApiKey)
+                .build();
+
+        // 补齐 5 个参数的完整构造器
+        OpenAiChatModel deepseekModel = new OpenAiChatModel(
+                deepseekApi,
+                OpenAiChatOptions.builder().model("deepseek-chat").temperature(0.7).build(),
+                null, // ToolCallingManager
+                new org.springframework.retry.support.RetryTemplate(),
+                io.micrometer.observation.ObservationRegistry.NOOP
+        );
 
         return ChatClient.builder(deepseekModel)
                 .defaultAdvisors(
                         new SimpleLoggerAdvisor(),
-                        MessageChatMemoryAdvisor.builder(redisChatMemory).build(),
-                        new QuestionAnswerAdvisor(
-                                vectorStore,
-                                SearchRequest.builder()
-                                        .similarityThreshold(0.5)
-                                        .topK(3)
-                                        .build()
-                        )
+                        MessageChatMemoryAdvisor.builder(redisChatMemory).build()
                 )
                 .build();
     }

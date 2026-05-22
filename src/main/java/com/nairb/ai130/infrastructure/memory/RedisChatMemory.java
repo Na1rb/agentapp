@@ -42,10 +42,10 @@ public class RedisChatMemory implements ChatMemory {
     }
 
     @Override
-    public List<Message> get(String convId, int lastN) {
+    public List<Message> get(String convId) {
         String key = KEY_PREFIX + convId;
         List<String> raw;
-        try { raw = redis.opsForList().range(key, -lastN, -1); } catch (Exception e) { return List.of(); }
+        try { raw = redis.opsForList().range(key, 0, -1); } catch (Exception e) { return List.of(); }
         if (raw == null) return List.of();
         List<Message> msgs = new ArrayList<>();
         for (String r : raw) {
