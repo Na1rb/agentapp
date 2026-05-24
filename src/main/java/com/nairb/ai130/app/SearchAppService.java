@@ -1,6 +1,6 @@
 package com.nairb.ai130.app;
 
-import com.nairb.ai130.types.dto.SearchResultVO;
+import com.nairb.ai130.types.vo.SearchResultVO;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.document.Document;

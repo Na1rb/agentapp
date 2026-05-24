@@ -3,7 +3,7 @@ package com.nairb.ai130.app;
 import com.nairb.ai130.common.exception.BusinessException;
 import com.nairb.ai130.domain.service.DocumentReader;
 import com.nairb.ai130.infrastructure.storage.LocalFileStorage;
-import com.nairb.ai130.types.dto.UploadResponse;
+import com.nairb.ai130.types.vo.UploadResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.document.Document;

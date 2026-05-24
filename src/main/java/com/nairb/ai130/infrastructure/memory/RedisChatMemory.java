@@ -42,6 +42,10 @@ public class RedisChatMemory implements ChatMemory {
     }
 
     @Override
+    public List<Message> get(String convId) {
+        return get(convId, Integer.MAX_VALUE);
+    }
+
     public List<Message> get(String convId, int lastN) {
         String key = KEY_PREFIX + convId;
         List<String> raw;
@@ -56,7 +60,9 @@ public class RedisChatMemory implements ChatMemory {
     }
 
     @Override
-    public void clear(String convId) { try { redis.delete(KEY_PREFIX + convId); } catch (Exception e) { log.error("Clear failed", e); } }
+    public void clear(String convId) {
+        try { redis.delete(KEY_PREFIX + convId); } catch (Exception e) { log.error("Clear failed", e); }
+    }
 
     private static class StoredMessage {
         private MessageType messageType;

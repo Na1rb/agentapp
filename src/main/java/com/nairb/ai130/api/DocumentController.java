@@ -3,7 +3,7 @@ package com.nairb.ai130.api;
 import com.nairb.ai130.app.DocumentAppService;
 import com.nairb.ai130.common.response.ApiResponse;
 import com.nairb.ai130.infrastructure.storage.LocalFileStorage;
-import com.nairb.ai130.types.dto.UploadResponse;
+import com.nairb.ai130.types.vo.UploadResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.core.io.Resource;

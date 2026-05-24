@@ -1,5 +1,6 @@
 server:
-  port: 8080
+  # 端口统一从 10001 开始编排；可通过 SERVER_PORT 环境变量覆盖
+  port: ${SERVER_PORT:10001}
   servlet:
     context-path: /
 

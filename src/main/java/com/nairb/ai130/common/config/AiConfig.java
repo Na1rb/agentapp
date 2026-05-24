@@ -3,20 +3,12 @@ package com.nairb.ai130.common.config;
 import com.nairb.ai130.infrastructure.memory.RedisChatMemory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.ai.chat.client.ChatClient;
-import org.springframework.ai.chat.client.advisor.MessageChatMemoryAdvisor;
-import org.springframework.ai.chat.client.advisor.QuestionAnswerAdvisor;
-import org.springframework.ai.chat.client.advisor.SimpleLoggerAdvisor;
-import org.springframework.ai.openai.OpenAiApi;
-import org.springframework.ai.openai.OpenAiChatModel;
-import org.springframework.ai.openai.OpenAiChatOptions;
 import org.springframework.ai.openai.OpenAiEmbeddingModel;
+import org.springframework.ai.openai.api.OpenAiApi;
 import org.springframework.ai.transformer.splitter.TextSplitter;
 import org.springframework.ai.transformer.splitter.TokenTextSplitter;
-import org.springframework.ai.vectorstore.SearchRequest;
 import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.ai.vectorstore.pgvector.PgVectorStore;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.data.redis.connection.RedisConnectionFactory;
@@ -31,31 +23,34 @@ public class AiConfig {
 
     private static final Logger log = LoggerFactory.getLogger(AiConfig.class);
 
-    // ==================== 基础数据源 ====================
-
     @Bean
     public JdbcTemplate jdbcTemplate(DataSource dataSource) {
         return new JdbcTemplate(dataSource);
     }
 
-    // ==================== 文本分割器 ====================
-
     @Bean
     public TextSplitter textSplitter() {
-        return new TokenTextSplitter(100, 500, 50, 10000, true);
+        return new TokenTextSplitter();
     }
 
-    // ==================== 向量存储 (PgVector) ====================
-
     @Bean
-    public VectorStore vectorStore(JdbcTemplate jdbcTemplate, OpenAiEmbeddingModel embeddingModel) {
+    public VectorStore vectorStore(JdbcTemplate jdbcTemplate,
+                                   org.springframework.context.ApplicationContext applicationContext) {
+        OpenAiEmbeddingModel embeddingModel;
+        try {
+            embeddingModel = applicationContext.getBean(OpenAiEmbeddingModel.class);
+        } catch (Exception e) {
+            log.warn("未找到 OpenAiEmbeddingModel，使用 dummy 兜底");
+            embeddingModel = new OpenAiEmbeddingModel(OpenAiApi.builder()
+                    .baseUrl("https://api.openai.com")
+                    .apiKey("dummy")
+                    .build());
+        }
         return PgVectorStore.builder(jdbcTemplate, embeddingModel)
                 .dimensions(1024)
                 .initializeSchema(true)
                 .build();
     }
-
-    // ==================== Redis 配置 ====================
 
     @Bean
     public RedisTemplate<String, String> redisTemplate(RedisConnectionFactory connectionFactory) {
@@ -72,58 +67,5 @@ public class AiConfig {
     @Bean
     public RedisChatMemory redisChatMemory(RedisTemplate<String, String> redisTemplate) {
         return new RedisChatMemory(redisTemplate);
-    }
-
-    // ==================== 主用模型 ChatClient (阿里云 Qwen) ====================
-
-    @Bean
-    public ChatClient chatClient(OpenAiChatModel model,
-                                 RedisChatMemory redisChatMemory,
-                                 VectorStore vectorStore) {
-        return ChatClient.builder(model)
-                .defaultAdvisors(
-                        new SimpleLoggerAdvisor(),
-                        MessageChatMemoryAdvisor.builder(redisChatMemory).build(),
-                        new QuestionAnswerAdvisor(
-                                vectorStore,
-                                SearchRequest.builder()
-                                        .similarityThreshold(0.5)
-                                        .topK(3)
-                                        .build()
-                        )
-                )
-                .build();
-    }
-
-    // ==================== 降级模型 ChatClient (DeepSeek) ====================
-
-    @Value("${spring.deepseek.openai.base-url:https://api.deepseek.com}")
-    private String deepseekBaseUrl;
-
-    @Value("${spring.deepseek.openai.api-key:}")
-    private String deepseekApiKey;
-
-    @Bean("deepseekChatClient")
-    public ChatClient deepseekChatClient(RedisChatMemory redisChatMemory, VectorStore vectorStore) {
-        OpenAiApi deepseekApi = new OpenAiApi(deepseekBaseUrl, deepseekApiKey);
-        OpenAiChatModel deepseekModel = new OpenAiChatModel(deepseekApi,
-                OpenAiChatOptions.builder()
-                        .model("deepseek-chat")
-                        .temperature(0.7)
-                        .build());
-
-        return ChatClient.builder(deepseekModel)
-                .defaultAdvisors(
-                        new SimpleLoggerAdvisor(),
-                        MessageChatMemoryAdvisor.builder(redisChatMemory).build(),
-                        new QuestionAnswerAdvisor(
-                                vectorStore,
-                                SearchRequest.builder()
-                                        .similarityThreshold(0.5)
-                                        .topK(3)
-                                        .build()
-                        )
-                )
-                .build();
     }
 }
