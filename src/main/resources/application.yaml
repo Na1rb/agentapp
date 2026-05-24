@@ -56,3 +56,7 @@ logging:
     root: info
     com.itheima.ai: debug
     org.springframework.ai: debug
+
+mybatis:
+  configuration:
+    map-underscore-to-camel-case: true

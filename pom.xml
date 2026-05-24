@@ -128,10 +128,17 @@
             <artifactId>spring-ai-pgvector-store</artifactId>
         </dependency>
 
-        <!-- JDBC 支持 (用于 JdbcTemplate) -->
+        <!-- JDBC 支持 (用于 PgVectorStore) -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-jdbc</artifactId>
+        </dependency>
+
+        <!-- MyBatis 支持 (用于业务数据访问) -->
+        <dependency>
+            <groupId>org.mybatis.spring.boot</groupId>
+            <artifactId>mybatis-spring-boot-starter</artifactId>
+            <version>3.0.4</version>
         </dependency>
 
         <!-- PostgreSQL 驱动 -->
