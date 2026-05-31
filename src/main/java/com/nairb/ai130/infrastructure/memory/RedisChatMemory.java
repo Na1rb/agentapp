@@ -41,11 +41,24 @@ public class RedisChatMemory implements ChatMemory {
         try { redis.expire(key, TTL, TimeUnit.HOURS); } catch (Exception ignored) {}
     }
 
-    @Override
     public List<Message> get(String convId, int lastN) {
         String key = KEY_PREFIX + convId;
         List<String> raw;
         try { raw = redis.opsForList().range(key, -lastN, -1); } catch (Exception e) { return List.of(); }
+        if (raw == null) return List.of();
+        List<Message> msgs = new ArrayList<>();
+        for (String r : raw) {
+            try { Message m = mapper.readValue(r, StoredMessage.class).toMessage(); if (m != null) msgs.add(m); }
+            catch (Exception ignored) {}
+        }
+        return msgs;
+    }
+
+    @Override
+    public List<Message> get(String convId) {
+        String key = KEY_PREFIX + convId;
+        List<String> raw;
+        try { raw = redis.opsForList().range(key, 0, -1); } catch (Exception e) { return List.of(); }
         if (raw == null) return List.of();
         List<Message> msgs = new ArrayList<>();
         for (String r : raw) {
