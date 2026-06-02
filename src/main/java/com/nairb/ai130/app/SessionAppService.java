@@ -56,6 +56,17 @@ public class SessionAppService {
         }).toList();
     }
 
+    /**
+     * 重命名会话（更新文件显示名称）。
+     */
+    public void rename(String chatId, String newName) {
+        if (chatId == null || chatId.isBlank()) throw new BusinessException(400, "chatId required");
+        if (newName == null || newName.isBlank()) throw new BusinessException(400, "name required");
+        if (!storage.hasFile(chatId)) throw new BusinessException(404, "session not found");
+        storage.renameFile(chatId, newName.trim());
+        log.info("Session renamed: chatId={}, newName={}", chatId, newName);
+    }
+
     @Transactional(rollbackFor = Exception.class)
     public void delete(String chatId) {
         if (chatId == null || chatId.isBlank()) throw new BusinessException(400, "chatId required");

@@ -20,6 +20,9 @@ public class ChatRequest {
     /** 工具名称列表（可选，对应 mcp_tool_config.tool_name） */
     private List<String> toolIds;
 
+    /** 模型 code（可选，为空时使用默认模型） */
+    private String modelCode;
+
     /** 编排策略（可选，如 STEP_CHECK 启用分步编排；为空则使用默认单步模式） */
     private String strategy;
 
@@ -51,6 +54,14 @@ public class ChatRequest {
         this.toolIds = toolIds;
     }
 
+    public String getModelCode() {
+        return modelCode;
+    }
+
+    public void setModelCode(String modelCode) {
+        this.modelCode = modelCode;
+    }
+
     public String getStrategy() {
         return strategy;
     }
@@ -65,6 +76,7 @@ public class ChatRequest {
                 "prompt='" + (prompt != null ? prompt.substring(0, Math.min(prompt.length(), 50)) : null) + "'" +
                 ", chatId='" + chatId + '\'' +
                 ", toolIds=" + getToolIds() +
+                ", modelCode='" + modelCode + '\'' +
                 ", strategy='" + strategy + '\'' +
                 '}';
     }

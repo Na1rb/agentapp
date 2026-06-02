@@ -12,6 +12,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api")
@@ -40,6 +41,29 @@ public class SessionController {
         int safe = Math.min(Math.max(limit, 1), 40);
         try { return ResponseEntity.ok(ApiResponse.success(sessionService.messages(chatId, safe))); }
         catch (Exception e) { return ResponseEntity.badRequest().body(ApiResponse.badRequest("Failed")); }
+    }
+
+    /**
+     * 重命名会话。
+     * <pre>PUT /api/session/{chatId}/rename</pre>
+     * 请求体: {"title": "新名称"}
+     */
+    @PutMapping("/session/{chatId}/rename")
+    public ResponseEntity<ApiResponse<String>> rename(@PathVariable String chatId,
+                                                       @RequestBody Map<String, String> body) {
+        String title = body.get("title");
+        if (title == null || title.isBlank()) {
+            return ResponseEntity.badRequest().body(ApiResponse.badRequest("title is required"));
+        }
+        try {
+            sessionService.rename(chatId, title.trim());
+            return ResponseEntity.ok(ApiResponse.success("renamed"));
+        } catch (BusinessException e) {
+            return ResponseEntity.status(e.getCode() >= 500 ? 500 : 400)
+                    .body(ApiResponse.error(e.getCode(), e.getMessage()));
+        } catch (Exception e) {
+            return ResponseEntity.internalServerError().body(ApiResponse.serverError(e.getMessage()));
+        }
     }
 
     @DeleteMapping("/session/{chatId}")

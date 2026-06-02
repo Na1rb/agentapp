@@ -1,8 +1,10 @@
 package com.nairb.ai130.api;
 
 import com.nairb.ai130.app.DocumentAppService;
+import com.nairb.ai130.common.exception.BusinessException;
 import com.nairb.ai130.common.response.ApiResponse;
 import com.nairb.ai130.infrastructure.storage.LocalFileStorage;
+import com.nairb.ai130.types.dto.DocumentVO;
 import com.nairb.ai130.types.dto.UploadResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -15,6 +17,7 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 import java.util.Set;
 
 @RestController
@@ -48,5 +51,38 @@ public class DocumentController {
         String enc = URLEncoder.encode(name, StandardCharsets.UTF_8).replaceAll("\\+", "%20");
         return ResponseEntity.ok().contentType(MediaType.APPLICATION_PDF)
                 .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename*=UTF-8''" + enc).body(r);
+    }
+
+    /**
+     * 获取所有已上传文档列表。
+     * <pre>GET /api/documents</pre>
+     */
+    @GetMapping("/documents")
+    public ResponseEntity<ApiResponse<List<DocumentVO>>> listDocuments() {
+        try {
+            List<DocumentVO> docs = docService.listDocuments();
+            return ResponseEntity.ok(ApiResponse.success(docs));
+        } catch (Exception e) {
+            log.error("Failed to list documents", e);
+            return ResponseEntity.internalServerError().body(ApiResponse.serverError(e.getMessage()));
+        }
+    }
+
+    /**
+     * 删除文档（含向量嵌入和文件）。
+     * <pre>DELETE /api/document/{chatId}</pre>
+     */
+    @DeleteMapping("/document/{chatId}")
+    public ResponseEntity<ApiResponse<String>> deleteDocument(@PathVariable String chatId) {
+        try {
+            docService.deleteDocument(chatId);
+            return ResponseEntity.ok(ApiResponse.success("Document deleted"));
+        } catch (BusinessException e) {
+            return ResponseEntity.status(e.getCode() >= 500 ? 500 : 400)
+                    .body(ApiResponse.error(e.getCode(), e.getMessage()));
+        } catch (Exception e) {
+            log.error("Failed to delete document", e);
+            return ResponseEntity.internalServerError().body(ApiResponse.serverError(e.getMessage()));
+        }
     }
 }

@@ -28,21 +28,23 @@ public class ChatController {
     public Flux<ServerSentEvent<String>> dchat(@RequestParam("prompt") String prompt,
                               @RequestParam(value = "chatId", required = false) String chatId,
                               @RequestParam(value = "toolIds", required = false) List<String> toolIds,
+                              @RequestParam(value = "modelCode", required = false) String modelCode,
                               @RequestParam(value = "strategy", required = false) String strategy) {
         String sessionId = (chatId != null && !chatId.isEmpty()) ? chatId : UUID.randomUUID().toString();
+        String selectedModel = (modelCode != null && !modelCode.isBlank()) ? modelCode : null;
 
-        log.info("GET /api/dchat session={}, prompt={}, tools={}, strategy={}",
-                sessionId, prompt, toolIds, strategy);
+        log.info("GET /api/dchat session={}, prompt={}, tools={}, model={}, strategy={}",
+                sessionId, prompt, toolIds, selectedModel, strategy);
 
         // 分步编排模式
         if ("STEP_CHECK".equalsIgnoreCase(strategy)) {
             return chatService.streamChatWithSteps(prompt, sessionId,
-                    toolIds != null ? toolIds : List.of());
+                    toolIds != null ? toolIds : List.of(), selectedModel);
         }
 
         // 默认流式模式：将纯文本包装为 ServerSentEvent（无 event 字段，即 data: 行）
         List<String> safeToolIds = toolIds != null ? toolIds : List.of();
-        return chatService.streamChat(prompt, sessionId, safeToolIds)
+        return chatService.streamChat(prompt, sessionId, safeToolIds, selectedModel)
                 .map(s -> ServerSentEvent.<String>builder().data(s).build());
     }
 
@@ -55,17 +57,19 @@ public class ChatController {
                 : UUID.randomUUID().toString();
         List<String> toolIds = request.getToolIds();
         String strategy = request.getStrategy();
+        String modelCode = request.getModelCode();
+        String selectedModel = (modelCode != null && !modelCode.isBlank()) ? modelCode : null;
 
-        log.info("POST /api/chat session={}, prompt={}, tools={}, strategy={}",
-                sessionId, request.getPrompt(), toolIds, strategy);
+        log.info("POST /api/chat session={}, prompt={}, tools={}, model={}, strategy={}",
+                sessionId, request.getPrompt(), toolIds, selectedModel, strategy);
 
         // 分步编排模式
         if ("STEP_CHECK".equalsIgnoreCase(strategy)) {
-            return chatService.streamChatWithSteps(request.getPrompt(), sessionId, toolIds);
+            return chatService.streamChatWithSteps(request.getPrompt(), sessionId, toolIds, selectedModel);
         }
 
         // 默认流式模式：将纯文本包装为 ServerSentEvent
-        return chatService.streamChat(request.getPrompt(), sessionId, toolIds)
+        return chatService.streamChat(request.getPrompt(), sessionId, toolIds, selectedModel)
                 .map(s -> ServerSentEvent.<String>builder().data(s).build());
     }
 }

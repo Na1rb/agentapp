@@ -75,6 +75,36 @@ public class LocalFileStorage {
     public boolean hasFile(String chatId) { return chatFiles.containsKey(chatId); }
     public Map<String, String> getAllChatFiles() { return new HashMap<>(chatFiles); }
 
+    /**
+     * 重命名已上传的文件（仅更新显示名称，物理文件名不变）。
+     * @return true 如果 chatId 存在
+     */
+    public boolean renameFile(String chatId, String newDisplayName) {
+        String currentPath = chatFiles.get(chatId);
+        if (currentPath == null) return false;
+        // 保持物理文件名不变，仅更新 path 中的显示名称部分
+        String cleanName = newDisplayName.replaceAll("[^a-zA-Z0-9.\\-\\u4e00-\\u9fff_]", "_");
+        String prefix = chatId + "-";
+        String newFilename = prefix + cleanName;
+        Path newTarget = Paths.get(STORAGE_DIR, newFilename);
+        chatFiles.put(chatId, newTarget.toString());
+        return true;
+    }
+
+    /**
+     * 获取文件的元数据（大小、最后修改时间）。
+     */
+    public FileInfo getFileInfo(String chatId) {
+        String p = chatFiles.get(chatId);
+        if (p == null) return null;
+        File f = new File(p);
+        if (!f.exists()) return null;
+        return new FileInfo(f.length(), f.lastModified());
+    }
+
+    /** 文件元数据值对象 */
+    public record FileInfo(long size, long lastModified) {}
+
     public void clearAll() {
         try {
             Path sp = Paths.get(STORAGE_DIR);

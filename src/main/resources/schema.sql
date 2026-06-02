@@ -1,28 +1,16 @@
--- 创建 vector 扩展
+-- ============================================================
+-- 注意：vector_store 向量表由 Spring AI PgVectorStore 自动管理
+-- （AiConfig.vectorStore() 中 initializeSchema=true），无需手动建表
+-- ============================================================
+
+-- 创建 vector 扩展（PgVectorStore 依赖）
 CREATE EXTENSION IF NOT EXISTS vector;
-
--- 创建文档嵌入表（阿里云 text-embedding-v3 维度为 1024）
-CREATE TABLE IF NOT EXISTS document_embeddings (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    text TEXT NOT NULL,
-    metadata JSONB NOT NULL DEFAULT '{}',
-    embedding vector(1024),
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
-
--- 创建 HNSW 索引用于向量搜索
-CREATE INDEX IF NOT EXISTS idx_document_embeddings_embedding
-ON document_embeddings USING hnsw (embedding vector_cosine_ops);
-
--- 创建元数据索引用于快速查询
-CREATE INDEX IF NOT EXISTS idx_document_embeddings_metadata
-ON document_embeddings USING gin (metadata);
 
 -- ============================================================
 -- MCP 工具配置表（Phase 1：工具配置存储与暴露）
 -- ============================================================
 CREATE TABLE IF NOT EXISTS mcp_tool_config (
-    id               BIGINT AUTO_INCREMENT PRIMARY KEY,
+    id               BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     tool_name        VARCHAR(64)  NOT NULL,
     display_name     VARCHAR(128) NOT NULL,
     description      VARCHAR(512),
@@ -55,3 +43,29 @@ VALUES
  'https://api.duckduckgo.com/', 'GET',
  '{"type":"object","properties":{"q":{"type":"string","description":"搜索关键词"}},"required":["q"]}')
 ON CONFLICT (tool_name) DO NOTHING;
+
+-- ============================================================
+-- AI 模型配置表（Phase 5: 数据库驱动的模型选择）
+-- ============================================================
+CREATE TABLE IF NOT EXISTS ai_model_config (
+    id               BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    model_code       VARCHAR(64)  NOT NULL,
+    model_name       VARCHAR(128) NOT NULL,
+    provider         VARCHAR(32)  NOT NULL DEFAULT 'openai',
+    base_url         VARCHAR(256),
+    api_key          VARCHAR(256),
+    is_default       BOOLEAN      NOT NULL DEFAULT FALSE,
+    is_enabled       BOOLEAN      NOT NULL DEFAULT TRUE,
+    sort_order       INT          NOT NULL DEFAULT 0,
+    created_at       TIMESTAMP    DEFAULT CURRENT_TIMESTAMP,
+    updated_at       TIMESTAMP    DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT uq_ai_model_config_code UNIQUE (model_code)
+);
+
+-- 种子数据：对话模型
+INSERT INTO ai_model_config (model_code, model_name, provider, is_default, is_enabled, sort_order)
+VALUES
+('qwen-plus',     '通义千问 Plus',    'openai',    TRUE,  TRUE, 1),
+('deepseek-chat', 'DeepSeek Chat',    'openai',    FALSE, TRUE, 2),
+('qwen-turbo',    '通义千问 Turbo',   'openai',    FALSE, TRUE, 3)
+ON CONFLICT (model_code) DO NOTHING;

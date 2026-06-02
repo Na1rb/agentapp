@@ -1,0 +1,12 @@
+target/
+pdf-storage/
+.git/
+.gitattributes
+.gitignore
+.idea/
+.mvn/wrapper/maven-wrapper.jar
+*.iml
+chat-pdf.properties
+HELP.md
+mvnw
+mvnw.cmd

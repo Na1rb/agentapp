@@ -50,28 +50,48 @@ public class ChatAppService {
 
     // ==================== 公开方法 ====================
 
-    /**
-     * 流式对话（无工具，向后兼容）。
-     */
-    public Flux<String> streamChat(String prompt, String sessionId) {
-        return streamChat(prompt, sessionId, Collections.emptyList());
-    }
+    // ==================== 向后兼容: 无 modelCode ====================
 
     /**
-     * 流式对话（支持动态工具注入）。
+     * 流式对话（无工具，无 modelCode — 兜底用）。
      */
-    public Flux<String> streamChat(String prompt, String sessionId, List<String> toolIds) {
+    public Flux<String> streamChat(String prompt, String sessionId) {
+        return streamChat(prompt, sessionId, Collections.emptyList(), null);
+    }
+
+    // ==================== 主入口: 支持 modelCode ====================
+
+    /**
+     * 流式对话（支持动态工具注入和模型选择）。
+     *
+     * @param modelCode 前端选中的模型 code；为 null 时使用默认主模型
+     */
+    public Flux<String> streamChat(String prompt, String sessionId, List<String> toolIds, String modelCode) {
         List<FunctionToolCallback<String, String>> tools = (toolIds != null && !toolIds.isEmpty())
                 ? mcpToolLoader.loadTools(toolIds)
                 : Collections.emptyList();
 
-        log.info("streamChat session={}, tools={}", sessionId,
+        String resolvedModel = (modelCode != null) ? modelCode : primaryModel;
+        log.info("streamChat session={}, model={}, tools={}", sessionId, resolvedModel,
                 tools.stream().map(t -> t.getToolDefinition().name()).toList());
 
+        ChatClient client = resolveClient(resolvedModel);
+        Flux<String> stream = streamByModel(prompt, sessionId, resolvedModel, client, tools);
+
+        // 如果不是默认主模型，不走降级；如果是主模型且失败，降级到 fallback
+        if (!resolvedModel.equals(primaryModel)) {
+            return stream.onErrorResume(e -> {
+                log.warn("[{}] Model {} failed: {}, trying primary fallback", sessionId, resolvedModel, e.getMessage());
+                return streamByModel(prompt, sessionId, primaryModel, primaryClient, tools)
+                        .onErrorResume(e2 -> Flux.just("Service unavailable."));
+            });
+        }
+
+        // 主模型失败 → 降级到 fallback
         AtomicBoolean primaryFailed = new AtomicBoolean(false);
         AtomicBoolean hasOutput = new AtomicBoolean(false);
 
-        Flux<String> primary = streamByModel(prompt, sessionId, primaryModel, tools)
+        Flux<String> primary = stream
                 .doOnNext(c -> hasOutput.set(true))
                 .doOnError(e -> { primaryFailed.set(true); log.warn("Primary failed: {}", e.getMessage()); })
                 .onErrorResume(e -> Flux.<String>empty());
@@ -80,12 +100,20 @@ public class ChatAppService {
             if (primaryFailed.get() || !hasOutput.get()) {
                 log.info("Fallback to [{}]", fallbackModel);
                 return Flux.concat(Flux.just("\n[Primary unavailable, switched to fallback]\n"),
-                        streamByModel(prompt, sessionId, fallbackModel, tools));
+                        streamByModel(prompt, sessionId, fallbackModel, fallbackClient, tools));
             }
             return Flux.<String>empty();
         }).onErrorResume(e -> Flux.just("Both models unavailable."));
 
         return Flux.concat(primary, fallback).switchIfEmpty(Flux.just("Service unavailable."));
+    }
+
+    /**
+     * 分步编排流式对话（STEP_CHECK 策略，向后兼容，无 modelCode）。
+     */
+    public Flux<ServerSentEvent<String>> streamChatWithSteps(String prompt, String sessionId,
+                                                              List<String> toolIds) {
+        return streamChatWithSteps(prompt, sessionId, toolIds, null);
     }
 
     /**
@@ -97,22 +125,24 @@ public class ChatAppService {
      * @param prompt    用户输入
      * @param sessionId 会话 ID
      * @param toolIds   工具名称列表
+     * @param modelCode 前端选中的模型 code；为 null 时使用默认主模型
      * @return SSE 事件流（step_start / step_result / step_complete / data）
      */
     public Flux<ServerSentEvent<String>> streamChatWithSteps(String prompt, String sessionId,
-                                                              List<String> toolIds) {
+                                                              List<String> toolIds, String modelCode) {
         List<FunctionToolCallback<String, String>> tools = (toolIds != null && !toolIds.isEmpty())
                 ? mcpToolLoader.loadTools(toolIds)
                 : Collections.emptyList();
 
-        log.info("streamChatWithSteps session={}, tools={}", sessionId,
+        String resolvedModel = (modelCode != null) ? modelCode : primaryModel;
+        log.info("streamChatWithSteps session={}, model={}, tools={}", sessionId, resolvedModel,
                 tools.stream().map(t -> t.getToolDefinition().name()).toList());
 
         // 初始化步骤状态
         stepStateManager.getOrInit(sessionId, "STEP_CHECK");
 
         // 开始编排循环
-        return orchestrateStep(prompt, sessionId, tools);
+        return orchestrateStep(prompt, sessionId, tools, resolvedModel);
     }
 
     // ==================== 编排循环 ====================
@@ -136,12 +166,14 @@ public class ChatAppService {
      * </ol>
      */
     private Flux<ServerSentEvent<String>> orchestrateStep(String prompt, String sessionId,
-                                                           List<FunctionToolCallback<String, String>> tools) {
-        return orchestrateStep(prompt, sessionId, tools, 0);
+                                                           List<FunctionToolCallback<String, String>> tools,
+                                                           String modelCode) {
+        return orchestrateStep(prompt, sessionId, tools, modelCode, 0);
     }
 
     private Flux<ServerSentEvent<String>> orchestrateStep(String prompt, String sessionId,
-                                                           List<FunctionToolCallback<String, String>> tools, int depth) {
+                                                           List<FunctionToolCallback<String, String>> tools,
+                                                           String modelCode, int depth) {
         return Flux.defer(() -> {
             // 独立递归深度防护
             if (depth > MAX_RECURSION_DEPTH) {
@@ -167,8 +199,8 @@ public class ChatAppService {
             StepPhase currentPhase = state.getPhase();
             String phasePrompt = advisor.buildPhasePrompt();
 
-            log.info("[{}] orchestrateStep phase={} loop={}/{}",
-                    sessionId, currentPhase, state.getLoopCount(), state.getMaxLoops());
+            log.info("[{}] orchestrateStep phase={} loop={}/{} model={}",
+                    sessionId, currentPhase, state.getLoopCount(), state.getMaxLoops(), modelCode);
 
             // 1. 发射 step_start 事件
             Flux<ServerSentEvent<String>> startEvent = Flux.just(
@@ -179,14 +211,14 @@ public class ChatAppService {
             if (currentPhase == StepPhase.SYNTHESIZE) {
                 return Flux.concat(
                         startEvent,
-                        streamSynthesizeAndComplete(prompt, sessionId, tools, phasePrompt, state)
+                        streamSynthesizeAndComplete(prompt, sessionId, tools, phasePrompt, state, modelCode)
                 );
             }
 
             // 3. ANALYZE / EXECUTE 阶段：收集完整响应 → 推进状态机
             return Flux.concat(
                     startEvent,
-                    collectAndAdvance(prompt, sessionId, tools, phasePrompt, advisor, state, currentPhase, depth)
+                    collectAndAdvance(prompt, sessionId, tools, phasePrompt, advisor, state, currentPhase, depth, modelCode)
             );
         });
     }
@@ -196,10 +228,11 @@ public class ChatAppService {
      */
     private Flux<ServerSentEvent<String>> streamSynthesizeAndComplete(
             String prompt, String sessionId, List<FunctionToolCallback<String, String>> tools,
-            String phasePrompt, StepState state) {
+            String phasePrompt, StepState state, String modelCode) {
 
+        ChatClient client = resolveClient(modelCode);
         Flux<String> modelStream = streamByModelWithPrompt(
-                prompt, sessionId, primaryModel, tools, phasePrompt);
+                prompt, sessionId, modelCode, client, tools, phasePrompt);
 
         Flux<ServerSentEvent<String>> dataEvents = modelStream
                 .map(s -> ServerSentEvent.<String>builder().data(s).build());
@@ -226,15 +259,16 @@ public class ChatAppService {
     private Flux<ServerSentEvent<String>> collectAndAdvance(
             String prompt, String sessionId, List<FunctionToolCallback<String, String>> tools,
             String phasePrompt, StepOrchestrationAdvisor advisor,
-            StepState state, StepPhase currentPhase, int depth) {
+            StepState state, StepPhase currentPhase, int depth, String modelCode) {
 
         // ANALYZE 阶段不注入工具（只需要推理，工具会在 EXECUTE 阶段使用）
         List<FunctionToolCallback<String, String>> effectiveTools = (currentPhase == StepPhase.ANALYZE)
                 ? Collections.emptyList()
                 : tools;
 
+        ChatClient stepClient = resolveClient(modelCode);
         Flux<String> modelStream = streamByModelWithPrompt(
-                prompt, sessionId, primaryModel, effectiveTools, phasePrompt);
+                prompt, sessionId, modelCode, stepClient, effectiveTools, phasePrompt);
 
         return modelStream
                 .reduce("", (accumulated, chunk) -> {
@@ -268,7 +302,7 @@ public class ChatAppService {
                     return Flux.concat(
                             resultEvents,
                             checkTransition,
-                            orchestrateStep(prompt, sessionId, tools, depth + 1)
+                            orchestrateStep(prompt, sessionId, tools, modelCode, depth + 1)
                     );
                 })
                 .onErrorResume(e -> {
@@ -327,15 +361,28 @@ public class ChatAppService {
         return Flux.empty();
     }
 
-    // ==================== 模型调用 ====================
+    // ==================== 模型路由 & 调用 ====================
+
+    /**
+     * 根据模型 code 解析对应的 ChatClient。
+     * <p>
+     * 模型以 "deepseek-" 开头 → fallbackClient（DeepSeek API）
+     * 其他（含 "qwen-"）→ primaryClient（阿里云 DashScope API）
+     */
+    private ChatClient resolveClient(String modelCode) {
+        if (modelCode != null && modelCode.toLowerCase().startsWith("deepseek-")) {
+            return fallbackClient;
+        }
+        return primaryClient;
+    }
 
     /**
      * 流式模型调用（带自定义 phase prompt）。
      */
     private Flux<String> streamByModelWithPrompt(String prompt, String sessionId, String model,
-                                                  List<FunctionToolCallback<String, String>> tools, String phasePrompt) {
-        ChatClient client = fallbackModel.equalsIgnoreCase(model) ? fallbackClient : primaryClient;
-
+                                                  ChatClient client,
+                                                  List<FunctionToolCallback<String, String>> tools,
+                                                  String phasePrompt) {
         String baseSystemText = "你是一个智能助手。\n1. 理解用户意图，包括同音错别字。\n2. 基于上下文回答问题。\n3. 如无相关信息则如实说明。";
         String systemText = (phasePrompt != null && !phasePrompt.isEmpty())
                 ? baseSystemText + "\n\n" + phasePrompt
@@ -349,19 +396,18 @@ public class ChatAppService {
 
         if (tools != null && !tools.isEmpty()) {
             spec = spec.tools(tools.toArray(new FunctionToolCallback[0]));
-            log.debug("Injected {} tool(s) for step model [{}]", tools.size(), model);
+            log.debug("Injected {} tool(s) for model [{}]", tools.size(), model);
         }
 
         return spec.stream().content();
     }
 
     /**
-     * 流式模型调用（原有逻辑，保持兼容）。
+     * 流式模型调用（基本版）。
      */
     private Flux<String> streamByModel(String prompt, String sessionId, String model,
+                                        ChatClient client,
                                         List<FunctionToolCallback<String, String>> tools) {
-        ChatClient client = fallbackModel.equalsIgnoreCase(model) ? fallbackClient : primaryClient;
-
         var spec = client.prompt()
                 .system(s -> s.text("你是一个智能助手。\n1. 理解用户意图，包括同音错别字。\n2. 基于上下文回答问题。\n3. 如无相关信息则如实说明。"))
                 .user(prompt)
