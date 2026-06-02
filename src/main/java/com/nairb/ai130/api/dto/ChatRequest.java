@@ -23,6 +23,9 @@ public class ChatRequest {
     /** 模型 code（可选，为空时使用默认模型） */
     private String modelCode;
 
+    /** 角色模板 code（可选，为空时使用默认「通用助手」） */
+    private String promptCode;
+
     /** 编排策略（可选，如 STEP_CHECK 启用分步编排；为空则使用默认单步模式） */
     private String strategy;
 
@@ -62,6 +65,14 @@ public class ChatRequest {
         this.modelCode = modelCode;
     }
 
+    public String getPromptCode() {
+        return promptCode;
+    }
+
+    public void setPromptCode(String promptCode) {
+        this.promptCode = promptCode;
+    }
+
     public String getStrategy() {
         return strategy;
     }
@@ -77,6 +88,7 @@ public class ChatRequest {
                 ", chatId='" + chatId + '\'' +
                 ", toolIds=" + getToolIds() +
                 ", modelCode='" + modelCode + '\'' +
+                ", promptCode='" + promptCode + '\'' +
                 ", strategy='" + strategy + '\'' +
                 '}';
     }

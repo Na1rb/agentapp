@@ -3,7 +3,6 @@ package com.nairb.ai130.app;
 import com.nairb.ai130.common.exception.BusinessException;
 import com.nairb.ai130.domain.service.DocumentReader;
 import com.nairb.ai130.infrastructure.storage.LocalFileStorage;
-import com.nairb.ai130.infrastructure.storage.LocalFileStorage;
 import com.nairb.ai130.types.dto.DocumentVO;
 import com.nairb.ai130.types.dto.UploadResponse;
 import org.slf4j.Logger;
@@ -40,7 +39,10 @@ public class DocumentAppService {
         this.fileStorage = fileStorage; this.jdbc = jdbc;
     }
 
-    public UploadResponse upload(MultipartFile file, String ext) {
+    /**
+     * @param userId 上传用户的 ID（从请求头 X-User-Id 获取）
+     */
+    public UploadResponse upload(MultipartFile file, String ext, long userId) {
         String fileName = file.getOriginalFilename();
         DocumentReader reader = "pdf".equals(ext) ? pdfReader : tikaReader;
         List<Document> docs = reader.read(file.getResource());
@@ -57,28 +59,38 @@ public class DocumentAppService {
         int batch = 10;
         for (int i = 0; i < split.size(); i += batch) vectorStore.add(split.subList(i, Math.min(i + batch, split.size())));
         if (!fileStorage.save(chatId, file)) throw new BusinessException("Failed to save file");
+        // 关联到用户
+        try {
+            jdbc.update("INSERT INTO user_session (user_id, chat_id, title) VALUES (?, ?, ?)",
+                    userId, chatId, fileName);
+        } catch (Exception e) {
+            log.warn("Failed to create user_session for chatId={}: {}", chatId, e.getMessage());
+        }
         return new UploadResponse(chatId, fileName, split.size());
     }
 
     /**
-     * 获取所有已上传文档的列表。
+     * 获取指定用户的所有已上传文档（有物理文件 + user_session 关联）。
      */
-    public List<DocumentVO> listDocuments() {
+    public List<DocumentVO> listDocuments(long userId) {
         SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
         List<DocumentVO> list = new ArrayList<>();
-        for (Map.Entry<String, String> entry : fileStorage.getAllChatFiles().entrySet()) {
-            String chatId = entry.getKey();
-            String path = entry.getValue();
-            String fileName = path.contains("-") ? path.substring(path.indexOf("-") + 1) : path;
-
-            LocalFileStorage.FileInfo info = fileStorage.getFileInfo(chatId);
-            long fileSize = info != null ? info.size() : 0;
-            String uploadedAt = info != null ? sdf.format(new Date(info.lastModified())) : "";
-
-            list.add(new DocumentVO(chatId, fileName, fileSize, chatId, uploadedAt));
+        try {
+            jdbc.query(
+                "SELECT us.chat_id, us.title FROM user_session us WHERE us.user_id = ? ORDER BY us.updated_at DESC",
+                (rs) -> {
+                    String chatId = rs.getString("chat_id");
+                    String fileName = rs.getString("title");
+                    LocalFileStorage.FileInfo info = fileStorage.getFileInfo(chatId);
+                    if (info == null) return; // 无物理文件，跳过
+                    long fileSize = info.size();
+                    String uploadedAt = sdf.format(new Date(info.lastModified()));
+                    list.add(new DocumentVO(chatId, fileName, fileSize, chatId, uploadedAt));
+                },
+                userId);
+        } catch (Exception e) {
+            log.error("Failed to list documents for userId={}", userId, e);
         }
-        // 按上传时间降序
-        list.sort((a, b) -> b.getUploadedAt().compareTo(a.getUploadedAt()));
         return list;
     }
 

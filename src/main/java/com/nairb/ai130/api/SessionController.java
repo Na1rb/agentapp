@@ -25,8 +25,8 @@ public class SessionController {
     public SessionController(SessionAppService sessionService) { this.sessionService = sessionService; }
 
     @GetMapping("/sessions")
-    public ResponseEntity<ApiResponse<List<SessionVO>>> list() {
-        try { return ResponseEntity.ok(ApiResponse.success(sessionService.list())); }
+    public ResponseEntity<ApiResponse<List<SessionVO>>> list(@RequestParam long userId) {
+        try { return ResponseEntity.ok(ApiResponse.success(sessionService.list(userId))); }
         catch (Exception e) { return ResponseEntity.ok(ApiResponse.success(List.of())); }
     }
 

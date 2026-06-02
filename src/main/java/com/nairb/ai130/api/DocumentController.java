@@ -33,12 +33,13 @@ public class DocumentController {
     public DocumentController(DocumentAppService docService, LocalFileStorage storage) { this.docService = docService; this.storage = storage; }
 
     @PostMapping("/upload")
-    public ResponseEntity<ApiResponse<UploadResponse>> upload(@RequestParam("file") MultipartFile file) {
+    public ResponseEntity<ApiResponse<UploadResponse>> upload(@RequestParam("file") MultipartFile file,
+                                                               @RequestParam long userId) {
         String name = file.getOriginalFilename();
         if (name == null || name.isEmpty()) return ResponseEntity.badRequest().body(ApiResponse.badRequest("File name empty"));
         String ext = name.substring(name.lastIndexOf('.') + 1).toLowerCase();
         if (!SUPPORTED.contains(ext)) return ResponseEntity.badRequest().body(ApiResponse.badRequest("Unsupported: ." + ext));
-        try { return ResponseEntity.ok(ApiResponse.success("Upload succeeded", docService.upload(file, ext))); }
+        try { return ResponseEntity.ok(ApiResponse.success("Upload succeeded", docService.upload(file, ext, userId))); }
         catch (Exception e) { log.error("Upload failed", e); return ResponseEntity.internalServerError().body(ApiResponse.serverError(e.getMessage())); }
     }
 
@@ -54,13 +55,13 @@ public class DocumentController {
     }
 
     /**
-     * 获取所有已上传文档列表。
-     * <pre>GET /api/documents</pre>
+     * 获取指定用户的文档列表。
+     * <pre>GET /api/documents?userId=1</pre>
      */
     @GetMapping("/documents")
-    public ResponseEntity<ApiResponse<List<DocumentVO>>> listDocuments() {
+    public ResponseEntity<ApiResponse<List<DocumentVO>>> listDocuments(@RequestParam long userId) {
         try {
-            List<DocumentVO> docs = docService.listDocuments();
+            List<DocumentVO> docs = docService.listDocuments(userId);
             return ResponseEntity.ok(ApiResponse.success(docs));
         } catch (Exception e) {
             log.error("Failed to list documents", e);

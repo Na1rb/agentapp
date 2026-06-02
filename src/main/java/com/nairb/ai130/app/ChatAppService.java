@@ -21,7 +21,6 @@ import reactor.core.publisher.Flux;
 
 import java.util.Collections;
 import java.util.List;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 @Service
 public class ChatAppService {
@@ -32,6 +31,7 @@ public class ChatAppService {
     private final ChatClient fallbackClient;
     private final McpToolLoader mcpToolLoader;
     private final StepStateManager stepStateManager;
+    private final PromptTemplateService promptService;
 
     @Value("${spring.ai.openai.chat.options.model:qwen-plus}")
     private String primaryModel;
@@ -41,11 +41,13 @@ public class ChatAppService {
     public ChatAppService(@Qualifier("chatClient") ChatClient primaryClient,
                           @Qualifier("deepseekChatClient") ChatClient fallbackClient,
                           McpToolLoader mcpToolLoader,
-                          StepStateManager stepStateManager) {
+                          StepStateManager stepStateManager,
+                          PromptTemplateService promptService) {
         this.primaryClient = primaryClient;
         this.fallbackClient = fallbackClient;
         this.mcpToolLoader = mcpToolLoader;
         this.stepStateManager = stepStateManager;
+        this.promptService = promptService;
     }
 
     // ==================== 公开方法 ====================
@@ -56,64 +58,68 @@ public class ChatAppService {
      * 流式对话（无工具，无 modelCode — 兜底用）。
      */
     public Flux<String> streamChat(String prompt, String sessionId) {
-        return streamChat(prompt, sessionId, Collections.emptyList(), null);
+        return streamChat(prompt, sessionId, Collections.emptyList(), null, null);
     }
 
-    // ==================== 主入口: 支持 modelCode ====================
+    // ==================== 主入口: 支持 modelCode + promptCode ====================
 
     /**
-     * 流式对话（支持动态工具注入和模型选择）。
+     * 流式对话（支持动态工具注入、模型选择和角色模板）。
+     * <p>
+     * 模型选择与降级顺序：
+     * <ol>
+     *   <li>用户选中的模型 → 用对应的客户端（阿里云 / DeepSeek）调用</li>
+     *   <li>失败 → 统一降级到 DeepSeek，携带用户可见的通知
+     *       （如「qwen-plus 调用失败，已自动切换至 DeepSeek Chat」）</li>
+     *   <li>DeepSeek 也失败 → 返回错误提示</li>
+     * </ol>
      *
-     * @param modelCode 前端选中的模型 code；为 null 时使用默认主模型
+     * @param modelCode  前端选中的模型 code；为 null 时使用默认主模型
+     * @param promptCode 角色模板 code；为 null 时使用默认「通用助手」
      */
-    public Flux<String> streamChat(String prompt, String sessionId, List<String> toolIds, String modelCode) {
+    public Flux<String> streamChat(String prompt, String sessionId, List<String> toolIds,
+                                    String modelCode, String promptCode) {
         List<FunctionToolCallback<String, String>> tools = (toolIds != null && !toolIds.isEmpty())
                 ? mcpToolLoader.loadTools(toolIds)
                 : Collections.emptyList();
 
         String resolvedModel = (modelCode != null) ? modelCode : primaryModel;
-        log.info("streamChat session={}, model={}, tools={}", sessionId, resolvedModel,
+        String systemText = promptService.getPrompt(promptCode);
+        log.info("streamChat session={}, model={}, promptCode={}, tools={}", sessionId, resolvedModel,
+                promptCode,
                 tools.stream().map(t -> t.getToolDefinition().name()).toList());
 
         ChatClient client = resolveClient(resolvedModel);
-        Flux<String> stream = streamByModel(prompt, sessionId, resolvedModel, client, tools);
 
-        // 如果不是默认主模型，不走降级；如果是主模型且失败，降级到 fallback
-        if (!resolvedModel.equals(primaryModel)) {
-            return stream.onErrorResume(e -> {
-                log.warn("[{}] Model {} failed: {}, trying primary fallback", sessionId, resolvedModel, e.getMessage());
-                return streamByModel(prompt, sessionId, primaryModel, primaryClient, tools)
-                        .onErrorResume(e2 -> Flux.just("Service unavailable."));
-            });
-        }
+        // Step 1: 用选中的模型 + 角色模板调用
+        Flux<String> selectedStream = streamByModel(prompt, sessionId, resolvedModel, client, tools,
+                systemText);
 
-        // 主模型失败 → 降级到 fallback
-        AtomicBoolean primaryFailed = new AtomicBoolean(false);
-        AtomicBoolean hasOutput = new AtomicBoolean(false);
-
-        Flux<String> primary = stream
-                .doOnNext(c -> hasOutput.set(true))
-                .doOnError(e -> { primaryFailed.set(true); log.warn("Primary failed: {}", e.getMessage()); })
-                .onErrorResume(e -> Flux.<String>empty());
-
-        Flux<String> fallback = Flux.defer(() -> {
-            if (primaryFailed.get() || !hasOutput.get()) {
-                log.info("Fallback to [{}]", fallbackModel);
-                return Flux.concat(Flux.just("\n[Primary unavailable, switched to fallback]\n"),
-                        streamByModel(prompt, sessionId, fallbackModel, fallbackClient, tools));
-            }
-            return Flux.<String>empty();
-        }).onErrorResume(e -> Flux.just("Both models unavailable."));
-
-        return Flux.concat(primary, fallback).switchIfEmpty(Flux.just("Service unavailable."));
+        // Step 2: 失败 → 降级到 DeepSeek（带用户通知）
+        return selectedStream
+                .onErrorResume(e -> {
+                    log.warn("[{}] Model [{}] failed: {}, falling back to DeepSeek",
+                            sessionId, resolvedModel, e.getMessage());
+                    String notice = String.format("\n[⚠️ %s 调用失败，已自动切换至 %s]\n",
+                            resolvedModel, fallbackModel);
+                    return Flux.concat(
+                            Flux.just(notice),
+                            streamByModel(prompt, sessionId, fallbackModel, fallbackClient, tools,
+                                    systemText)
+                    );
+                })
+                .onErrorResume(e -> {
+                    log.error("[{}] DeepSeek fallback also failed: {}", sessionId, e.getMessage());
+                    return Flux.just("\n[❌ 所有模型均不可用，请检查 API 配置]\n");
+                });
     }
 
     /**
-     * 分步编排流式对话（STEP_CHECK 策略，向后兼容，无 modelCode）。
+     * 分步编排流式对话（向后兼容，无 promptCode）。
      */
     public Flux<ServerSentEvent<String>> streamChatWithSteps(String prompt, String sessionId,
                                                               List<String> toolIds) {
-        return streamChatWithSteps(prompt, sessionId, toolIds, null);
+        return streamChatWithSteps(prompt, sessionId, toolIds, null, null);
     }
 
     /**
@@ -122,27 +128,31 @@ public class ChatAppService {
      * 按照 ANALYZE → EXECUTE → CHECK → LOOP 状态机分步执行，
      * 每个步骤通过 SSE 命名事件通知前端进度。
      *
-     * @param prompt    用户输入
-     * @param sessionId 会话 ID
-     * @param toolIds   工具名称列表
-     * @param modelCode 前端选中的模型 code；为 null 时使用默认主模型
+     * @param prompt     用户输入
+     * @param sessionId  会话 ID
+     * @param toolIds    工具名称列表
+     * @param modelCode  前端选中的模型 code；为 null 时使用默认主模型
+     * @param promptCode 角色模板 code；为 null 时使用默认「通用助手」
      * @return SSE 事件流（step_start / step_result / step_complete / data）
      */
     public Flux<ServerSentEvent<String>> streamChatWithSteps(String prompt, String sessionId,
-                                                              List<String> toolIds, String modelCode) {
+                                                              List<String> toolIds, String modelCode,
+                                                              String promptCode) {
         List<FunctionToolCallback<String, String>> tools = (toolIds != null && !toolIds.isEmpty())
                 ? mcpToolLoader.loadTools(toolIds)
                 : Collections.emptyList();
 
         String resolvedModel = (modelCode != null) ? modelCode : primaryModel;
-        log.info("streamChatWithSteps session={}, model={}, tools={}", sessionId, resolvedModel,
+        String systemText = promptService.getPrompt(promptCode);
+        log.info("streamChatWithSteps session={}, model={}, promptCode={}, tools={}",
+                sessionId, resolvedModel, promptCode,
                 tools.stream().map(t -> t.getToolDefinition().name()).toList());
 
         // 初始化步骤状态
         stepStateManager.getOrInit(sessionId, "STEP_CHECK");
 
         // 开始编排循环
-        return orchestrateStep(prompt, sessionId, tools, resolvedModel);
+        return orchestrateStep(prompt, sessionId, tools, resolvedModel, systemText);
     }
 
     // ==================== 编排循环 ====================
@@ -167,13 +177,13 @@ public class ChatAppService {
      */
     private Flux<ServerSentEvent<String>> orchestrateStep(String prompt, String sessionId,
                                                            List<FunctionToolCallback<String, String>> tools,
-                                                           String modelCode) {
-        return orchestrateStep(prompt, sessionId, tools, modelCode, 0);
+                                                           String modelCode, String systemText) {
+        return orchestrateStep(prompt, sessionId, tools, modelCode, systemText, 0);
     }
 
     private Flux<ServerSentEvent<String>> orchestrateStep(String prompt, String sessionId,
                                                            List<FunctionToolCallback<String, String>> tools,
-                                                           String modelCode, int depth) {
+                                                           String modelCode, String systemText, int depth) {
         return Flux.defer(() -> {
             // 独立递归深度防护
             if (depth > MAX_RECURSION_DEPTH) {
@@ -211,30 +221,50 @@ public class ChatAppService {
             if (currentPhase == StepPhase.SYNTHESIZE) {
                 return Flux.concat(
                         startEvent,
-                        streamSynthesizeAndComplete(prompt, sessionId, tools, phasePrompt, state, modelCode)
+                        streamSynthesizeAndComplete(prompt, sessionId, tools, phasePrompt, state, modelCode, systemText)
                 );
             }
 
             // 3. ANALYZE / EXECUTE 阶段：收集完整响应 → 推进状态机
             return Flux.concat(
                     startEvent,
-                    collectAndAdvance(prompt, sessionId, tools, phasePrompt, advisor, state, currentPhase, depth, modelCode)
+                    collectAndAdvance(prompt, sessionId, tools, phasePrompt, advisor, state, currentPhase, depth, modelCode, systemText)
             );
         });
     }
 
     /**
      * SYNTHESIZE 阶段：流式输出最终回答，完成后清理状态。
+     * <p>
+     * 如果选中的模型失败，降级到 DeepSeek 生成最终回答。
      */
     private Flux<ServerSentEvent<String>> streamSynthesizeAndComplete(
             String prompt, String sessionId, List<FunctionToolCallback<String, String>> tools,
-            String phasePrompt, StepState state, String modelCode) {
+            String phasePrompt, StepState state, String modelCode, String systemText) {
 
         ChatClient client = resolveClient(modelCode);
         Flux<String> modelStream = streamByModelWithPrompt(
-                prompt, sessionId, modelCode, client, tools, phasePrompt);
+                prompt, sessionId, modelCode, client, tools, phasePrompt, systemText);
 
-        Flux<ServerSentEvent<String>> dataEvents = modelStream
+        // 模型失败 → 降级到 DeepSeek 完成最终回答
+        Flux<String> withFallback = modelStream
+                .onErrorResume(e -> {
+                    log.warn("[{}] SYNTHESIZE model [{}] failed: {}, falling back to DeepSeek",
+                            sessionId, modelCode, e.getMessage());
+                    String notice = String.format("\n[⚠️ %s 汇总失败，已自动切换至 %s]\n",
+                            modelCode, fallbackModel);
+                    return Flux.concat(
+                            Flux.just(notice),
+                            streamByModelWithPrompt(prompt, sessionId, fallbackModel,
+                                    fallbackClient, tools, phasePrompt, systemText)
+                    );
+                })
+                .onErrorResume(e -> {
+                    log.error("[{}] DeepSeek SYNTHESIZE fallback also failed: {}", sessionId, e.getMessage());
+                    return Flux.just("\n[❌ 生成最终回答失败]\n");
+                });
+
+        Flux<ServerSentEvent<String>> dataEvents = withFallback
                 .map(s -> ServerSentEvent.<String>builder().data(s).build());
 
         // 流结束后发射 step_complete 并清理状态
@@ -259,7 +289,8 @@ public class ChatAppService {
     private Flux<ServerSentEvent<String>> collectAndAdvance(
             String prompt, String sessionId, List<FunctionToolCallback<String, String>> tools,
             String phasePrompt, StepOrchestrationAdvisor advisor,
-            StepState state, StepPhase currentPhase, int depth, String modelCode) {
+            StepState state, StepPhase currentPhase, int depth, String modelCode,
+            String systemText) {
 
         // ANALYZE 阶段不注入工具（只需要推理，工具会在 EXECUTE 阶段使用）
         List<FunctionToolCallback<String, String>> effectiveTools = (currentPhase == StepPhase.ANALYZE)
@@ -268,9 +299,21 @@ public class ChatAppService {
 
         ChatClient stepClient = resolveClient(modelCode);
         Flux<String> modelStream = streamByModelWithPrompt(
-                prompt, sessionId, modelCode, stepClient, effectiveTools, phasePrompt);
+                prompt, sessionId, modelCode, stepClient, effectiveTools, phasePrompt, systemText);
 
-        return modelStream
+        // 模型失败 → 降级到 DeepSeek 继续编排
+        Flux<String> withFallback = modelStream
+                .onErrorResume(e -> {
+                    log.warn("[{}] {} model [{}] failed: {}, falling back to DeepSeek",
+                            sessionId, currentPhase, modelCode, e.getMessage());
+                    return Flux.concat(
+                            Flux.just("[⚠️ " + modelCode + " 分析失败，已切换至 " + fallbackModel + "]\n"),
+                            streamByModelWithPrompt(prompt, sessionId, fallbackModel,
+                                    fallbackClient, effectiveTools, phasePrompt, systemText)
+                    );
+                });
+
+        return withFallback
                 .reduce("", (accumulated, chunk) -> {
                     String combined = accumulated + chunk;
                     // 防 OOM：超过上限截断
@@ -302,7 +345,7 @@ public class ChatAppService {
                     return Flux.concat(
                             resultEvents,
                             checkTransition,
-                            orchestrateStep(prompt, sessionId, tools, modelCode, depth + 1)
+                            orchestrateStep(prompt, sessionId, tools, modelCode, systemText, depth + 1)
                     );
                 })
                 .onErrorResume(e -> {
@@ -382,14 +425,13 @@ public class ChatAppService {
     private Flux<String> streamByModelWithPrompt(String prompt, String sessionId, String model,
                                                   ChatClient client,
                                                   List<FunctionToolCallback<String, String>> tools,
-                                                  String phasePrompt) {
-        String baseSystemText = "你是一个智能助手。\n1. 理解用户意图，包括同音错别字。\n2. 基于上下文回答问题。\n3. 如无相关信息则如实说明。";
-        String systemText = (phasePrompt != null && !phasePrompt.isEmpty())
-                ? baseSystemText + "\n\n" + phasePrompt
-                : baseSystemText;
+                                                  String phasePrompt, String systemText) {
+        String resolvedSystem = (phasePrompt != null && !phasePrompt.isEmpty())
+                ? systemText + "\n\n" + phasePrompt
+                : systemText;
 
         var spec = client.prompt()
-                .system(s -> s.text(systemText))
+                .system(s -> s.text(resolvedSystem))
                 .user(prompt)
                 .options(OpenAiChatOptions.builder().model(model).temperature(0.7).build())
                 .advisors(a -> a.param("conversation_id", sessionId).param("retrieve_size", 10));
@@ -407,9 +449,10 @@ public class ChatAppService {
      */
     private Flux<String> streamByModel(String prompt, String sessionId, String model,
                                         ChatClient client,
-                                        List<FunctionToolCallback<String, String>> tools) {
+                                        List<FunctionToolCallback<String, String>> tools,
+                                        String systemText) {
         var spec = client.prompt()
-                .system(s -> s.text("你是一个智能助手。\n1. 理解用户意图，包括同音错别字。\n2. 基于上下文回答问题。\n3. 如无相关信息则如实说明。"))
+                .system(s -> s.text(systemText))
                 .user(prompt)
                 .options(OpenAiChatOptions.builder().model(model).temperature(0.7).build())
                 .advisors(a -> a.param("conversation_id", sessionId).param("retrieve_size", 10));
