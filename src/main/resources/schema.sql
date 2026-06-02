@@ -65,9 +65,9 @@ CREATE TABLE IF NOT EXISTS ai_model_config (
 -- 种子数据：对话模型
 INSERT INTO ai_model_config (model_code, model_name, provider, is_default, is_enabled, sort_order)
 VALUES
-('qwen-plus',     '通义千问 Plus',    'openai',    TRUE,  TRUE, 1),
-('deepseek-chat', 'DeepSeek Chat',    'openai',    FALSE, TRUE, 2),
-('qwen-turbo',    '通义千问 Turbo',   'openai',    FALSE, TRUE, 3)
+('qwen-plus',       '通义千问 Plus',      'openai',    TRUE,  TRUE, 1),
+('qwen3.5-flash',   'Qwen3.5 Flash',     'openai',    FALSE, TRUE, 2),
+('qwen3.5-plus',    'Qwen3.5 Plus',      'openai',    FALSE, TRUE, 3)
 ON CONFLICT (model_code) DO NOTHING;
 
 -- ============================================================
@@ -156,6 +156,6 @@ INSERT INTO agent_flow_step (agent_id, step_id, sequence, client_type, client_na
 VALUES
 ('demo-research', 'search', 1, 'MCP_TOOL', '联网搜索', 'web_search',
  '根据用户问题搜索互联网。用户输入: {{user_input}}', 'search_result', 'retry'),
-('demo-research', 'analyze', 2, 'LLM', '分析引擎', 'qwen-plus',
+('demo-research', 'analyze', 2, 'LLM', '分析引擎', 'qwen3.5-plus',
  '基于以下搜索结果进行分析：\n{{search.output}}\n\n请提炼关键信息并给出结论。', 'analysis', 'abort')
 ON CONFLICT (agent_id, step_id) DO NOTHING;

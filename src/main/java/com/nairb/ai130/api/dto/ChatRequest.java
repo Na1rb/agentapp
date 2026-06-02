@@ -17,6 +17,9 @@ public class ChatRequest {
     /** 会话 ID（可选，为空时自动生成） */
     private String chatId;
 
+    /** 用户 ID（用于自动创建会话关联记录） */
+    private Long userId;
+
     /** 工具名称列表（可选，对应 mcp_tool_config.tool_name） */
     private List<String> toolIds;
 
@@ -47,6 +50,14 @@ public class ChatRequest {
 
     public void setChatId(String chatId) {
         this.chatId = chatId;
+    }
+
+    public Long getUserId() {
+        return userId;
+    }
+
+    public void setUserId(Long userId) {
+        this.userId = userId;
     }
 
     public List<String> getToolIds() {

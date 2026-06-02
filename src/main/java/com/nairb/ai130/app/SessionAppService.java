@@ -57,7 +57,9 @@ public class SessionAppService {
      * 为用户创建一条会话记录。
      */
     public void createUserSession(long userId, String chatId, String title) {
-        jdbc.update("INSERT INTO user_session (user_id, chat_id, title) VALUES (?, ?, ?)",
+        jdbc.update(
+                "INSERT INTO user_session (user_id, chat_id, title) VALUES (?, ?, ?) " +
+                "ON CONFLICT (chat_id) DO NOTHING",
                 userId, chatId, title);
     }
 

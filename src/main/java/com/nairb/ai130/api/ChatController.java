@@ -2,6 +2,7 @@ package com.nairb.ai130.api;
 
 import com.nairb.ai130.api.dto.ChatRequest;
 import com.nairb.ai130.app.ChatAppService;
+import com.nairb.ai130.app.SessionAppService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.MediaType;
@@ -19,14 +20,19 @@ public class ChatController {
     private static final Logger log = LoggerFactory.getLogger(ChatController.class);
 
     private final ChatAppService chatService;
+    private final SessionAppService sessionService;
 
-    public ChatController(ChatAppService chatService) { this.chatService = chatService; }
+    public ChatController(ChatAppService chatService, SessionAppService sessionService) {
+        this.chatService = chatService;
+        this.sessionService = sessionService;
+    }
 
     // ==================== GET: 简化对话（向后兼容） ====================
 
     @GetMapping(value = "/dchat", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public Flux<ServerSentEvent<String>> dchat(@RequestParam("prompt") String prompt,
                               @RequestParam(value = "chatId", required = false) String chatId,
+                              @RequestParam(value = "userId", required = false) Long userId,
                               @RequestParam(value = "toolIds", required = false) List<String> toolIds,
                               @RequestParam(value = "modelCode", required = false) String modelCode,
                               @RequestParam(value = "promptCode", required = false) String promptCode,
@@ -34,8 +40,11 @@ public class ChatController {
         String sessionId = (chatId != null && !chatId.isEmpty()) ? chatId : UUID.randomUUID().toString();
         String selectedModel = (modelCode != null && !modelCode.isBlank()) ? modelCode : null;
 
-        log.info("GET /api/dchat session={}, prompt={}, tools={}, model={}, promptCode={}, strategy={}",
-                sessionId, prompt, toolIds, selectedModel, promptCode, strategy);
+        log.info("GET /api/dchat session={}, userId={}, prompt={}, tools={}, model={}, promptCode={}, strategy={}",
+                sessionId, userId, prompt, toolIds, selectedModel, promptCode, strategy);
+
+        // 自动创建用户会话关联
+        ensureUserSession(userId, sessionId, prompt);
 
         // 分步编排模式
         if ("STEP_CHECK".equalsIgnoreCase(strategy)) {
@@ -62,8 +71,11 @@ public class ChatController {
         String promptCode = request.getPromptCode();
         String selectedModel = (modelCode != null && !modelCode.isBlank()) ? modelCode : null;
 
-        log.info("POST /api/chat session={}, prompt={}, tools={}, model={}, promptCode={}, strategy={}",
-                sessionId, request.getPrompt(), toolIds, selectedModel, promptCode, strategy);
+        log.info("POST /api/chat session={}, userId={}, prompt={}, tools={}, model={}, promptCode={}, strategy={}",
+                sessionId, request.getUserId(), request.getPrompt(), toolIds, selectedModel, promptCode, strategy);
+
+        // 自动创建用户会话关联
+        ensureUserSession(request.getUserId(), sessionId, request.getPrompt());
 
         // 分步编排模式
         if ("STEP_CHECK".equalsIgnoreCase(strategy)) {
@@ -73,5 +85,24 @@ public class ChatController {
         // 默认流式模式：将纯文本包装为 ServerSentEvent
         return chatService.streamChat(request.getPrompt(), sessionId, toolIds, selectedModel, promptCode)
                 .map(s -> ServerSentEvent.<String>builder().data(s).build());
+    }
+
+    // ==================== 私有辅助方法 ====================
+
+    /**
+     * 确保用户会话关联存在（不存在则自动创建）。
+     * title 取 prompt 前 30 个字符，过长用 … 截断。
+     */
+    private void ensureUserSession(Long userId, String chatId, String prompt) {
+        if (userId == null || userId <= 0) return;
+        String title = prompt;
+        if (prompt != null && prompt.length() > 30) {
+            title = prompt.substring(0, 30).replace('\n', ' ') + "…";
+        }
+        try {
+            sessionService.createUserSession(userId, chatId, title);
+        } catch (Exception e) {
+            log.warn("Failed to create user session for chatId={}: {}", chatId, e.getMessage());
+        }
     }
 }

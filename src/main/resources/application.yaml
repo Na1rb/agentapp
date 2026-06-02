@@ -29,15 +29,14 @@ spring:
 
   deepseek:
     openai:
-      base-url: https://api.deepseek.com/v1
+      base-url: https://api.deepseek.com
       api-key: ${DEEPSEEK_API_KEY:}
       chat:
         options:
-          model: deepseek-chat
+          model: deepseek-v4-flash
 
-  # SQL 初始化
-  #  宿主机开发 : always  （默认值）
-  #  Docker 部署 : never  （通过环境变量 SPRING_SQL_INIT_MODE=never 覆盖）
+  # SQL 初始化（所有表使用 CREATE TABLE IF NOT EXISTS，幂等安全，可每次启动执行）
+  #  可通过环境变量 SPRING_SQL_INIT_MODE=never 覆盖（如连接已有数据库的第三方服务）
   sql:
     init:
       mode: ${SPRING_SQL_INIT_MODE:always}

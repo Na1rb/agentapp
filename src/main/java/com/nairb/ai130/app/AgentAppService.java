@@ -35,7 +35,7 @@ public class AgentAppService {
     private final ChatClient primaryClient;
     private final ChatClient fallbackClient;
 
-    @Value("${spring.deepseek.openai.chat.options.model:deepseek-chat}")
+    @Value("${spring.deepseek.openai.chat.options.model:deepseek-v4-flash}")
     private String fallbackModel;
 
     public AgentAppService(AgentConfigRepository configRepo,

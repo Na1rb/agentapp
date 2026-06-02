@@ -158,7 +158,7 @@ public class AiConfig {
     @Value("${spring.deepseek.openai.api-key:}")
     private String deepseekApiKey;
 
-    @Value("${spring.deepseek.openai.chat.options.model:deepseek-chat}")
+    @Value("${spring.deepseek.openai.chat.options.model:deepseek-v4-flash}")
     private String deepseekChatModelName;
 
     /**

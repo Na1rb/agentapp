@@ -35,7 +35,7 @@ public class ChatAppService {
 
     @Value("${spring.ai.openai.chat.options.model:qwen-plus}")
     private String primaryModel;
-    @Value("${spring.deepseek.openai.chat.options.model:deepseek-chat}")
+    @Value("${spring.deepseek.openai.chat.options.model:deepseek-v4-flash}")
     private String fallbackModel;
 
     public ChatAppService(@Qualifier("chatClient") ChatClient primaryClient,
@@ -100,6 +100,7 @@ public class ChatAppService {
                 .onErrorResume(e -> {
                     log.warn("[{}] Model [{}] failed: {}, falling back to DeepSeek",
                             sessionId, resolvedModel, e.getMessage());
+                    String cause = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
                     String notice = String.format("\n[⚠️ %s 调用失败，已自动切换至 %s]\n",
                             resolvedModel, fallbackModel);
                     return Flux.concat(
@@ -109,8 +110,11 @@ public class ChatAppService {
                     );
                 })
                 .onErrorResume(e -> {
-                    log.error("[{}] DeepSeek fallback also failed: {}", sessionId, e.getMessage());
-                    return Flux.just("\n[❌ 所有模型均不可用，请检查 API 配置]\n");
+                    String cause = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
+                    log.error("[{}] DeepSeek fallback also failed: {}", sessionId, cause);
+                    return Flux.just(String.format(
+                            "\n[❌ 所有模型均不可用]\n[主模型 %s 和降级模型 %s 均调用失败]\n[原因: %s]\n",
+                            resolvedModel, fallbackModel, cause));
                 });
     }
 
