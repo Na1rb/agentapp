@@ -98,11 +98,10 @@ public class ChatAppService {
         // Step 2: 失败 → 降级到 DeepSeek（带用户通知）
         return selectedStream
                 .onErrorResume(e -> {
-                    log.warn("[{}] Model [{}] failed: {}, falling back to DeepSeek",
-                            sessionId, resolvedModel, e.getMessage());
-                    String cause = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
-                    String notice = String.format("\n[⚠️ %s 调用失败，已自动切换至 %s]\n",
-                            resolvedModel, fallbackModel);
+                    log.warn("[{}] Model [{}] failed: {}", sessionId, resolvedModel,
+                            rootCauseMsg(e), e);   // e 作为最后参数 = 记录全堆栈
+                    String notice = String.format("\n[⚠️ %s 调用失败（%s），已自动切换至 %s]\n",
+                            resolvedModel, rootCauseMsg(e), fallbackModel);
                     return Flux.concat(
                             Flux.just(notice),
                             streamByModel(prompt, sessionId, fallbackModel, fallbackClient, tools,
@@ -110,11 +109,11 @@ public class ChatAppService {
                     );
                 })
                 .onErrorResume(e -> {
-                    String cause = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
-                    log.error("[{}] DeepSeek fallback also failed: {}", sessionId, cause);
+                    log.error("[{}] DeepSeek fallback also failed: {}", sessionId,
+                            rootCauseMsg(e), e);   // 全堆栈
                     return Flux.just(String.format(
-                            "\n[❌ 所有模型均不可用]\n[主模型 %s 和降级模型 %s 均调用失败]\n[原因: %s]\n",
-                            resolvedModel, fallbackModel, cause));
+                            "\n[❌ 所有模型均不可用]\n[主模型 %s 和降级模型 %s 均调用失败]\n[根因: %s]\n",
+                            resolvedModel, fallbackModel, rootCauseMsg(e)));
                 });
     }
 
@@ -487,5 +486,14 @@ public class ChatAppService {
                 .replace("\n", "\\n")
                 .replace("\r", "\\r")
                 .replace("\t", "\\t");
+    }
+
+    /** 递归拆解异常链，取最底层原因的消息 */
+    private String rootCauseMsg(Throwable e) {
+        Throwable cause = e;
+        while (cause.getCause() != null && cause.getCause() != cause) {
+            cause = cause.getCause();
+        }
+        return cause.getMessage() != null ? cause.getMessage() : cause.getClass().getSimpleName();
     }
 }

@@ -98,6 +98,10 @@ public class AiConfig {
      */
     @Bean
     public OpenAiApi openAiApi() {
+        log.info("🔑 Primary OpenAiApi: baseUrl={}, keyLen={}, keyPreview={}...{}",
+                openaiBaseUrl, openaiApiKey.length(),
+                openaiApiKey.length() >= 8 ? openaiApiKey.substring(0, 6) : "(short)",
+                openaiApiKey.length() >= 8 ? openaiApiKey.substring(openaiApiKey.length() - 4) : "");
         return OpenAiApi.builder()
                 .baseUrl(openaiBaseUrl)
                 .apiKey(openaiApiKey)
@@ -158,7 +162,7 @@ public class AiConfig {
     @Value("${spring.deepseek.openai.api-key:}")
     private String deepseekApiKey;
 
-    @Value("${spring.deepseek.openai.chat.options.model:deepseek-v4-flash}")
+    @Value("${spring.deepseek.openai.chat.options.model:deepseek-chat}")
     private String deepseekChatModelName;
 
     /**
@@ -166,6 +170,10 @@ public class AiConfig {
      */
     @Bean
     public OpenAiApi deepseekOpenAiApi() {
+        log.info("🔑 DeepSeek OpenAiApi: baseUrl={}, keyLen={}, keyPreview={}...{}",
+                deepseekBaseUrl, deepseekApiKey.length(),
+                deepseekApiKey.length() >= 8 ? deepseekApiKey.substring(0, 6) : "(short)",
+                deepseekApiKey.length() >= 8 ? deepseekApiKey.substring(deepseekApiKey.length() - 4) : "");
         return OpenAiApi.builder()
                 .baseUrl(deepseekBaseUrl)
                 .apiKey(deepseekApiKey)
