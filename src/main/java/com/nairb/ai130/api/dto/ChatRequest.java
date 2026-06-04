@@ -32,6 +32,11 @@ public class ChatRequest {
     /** 编排策略（可选，如 STEP_CHECK 启用分步编排；为空则使用默认单步模式） */
     private String strategy;
 
+    private String workflowDefId;
+
+    /** 对话模式：normal 普通模式 / rag 知识库模式（可选，为空时默认为 normal） */
+    private String chatMode;
+
     public ChatRequest() {}
 
     // ==================== Getters / Setters ====================
@@ -92,6 +97,22 @@ public class ChatRequest {
         this.strategy = strategy;
     }
 
+    public String getWorkflowDefId() {
+        return workflowDefId;
+    }
+
+    public void setWorkflowDefId(String workflowDefId) {
+        this.workflowDefId = workflowDefId;
+    }
+
+    public String getChatMode() {
+        return chatMode;
+    }
+
+    public void setChatMode(String chatMode) {
+        this.chatMode = chatMode;
+    }
+
     @Override
     public String toString() {
         return "ChatRequest{" +
@@ -101,6 +122,8 @@ public class ChatRequest {
                 ", modelCode='" + modelCode + '\'' +
                 ", promptCode='" + promptCode + '\'' +
                 ", strategy='" + strategy + '\'' +
+                ", workflowDefId='" + workflowDefId + '\'' +
+                ", chatMode='" + chatMode + '\'' +
                 '}';
     }
 }

@@ -1,9 +1,10 @@
 package com.nairb.ai130.app;
 
+import com.nairb.ai130.agent.engine.EngineFactory;
 import com.nairb.ai130.agent.engine.ExecutionEngine;
-import com.nairb.ai130.agent.engine.SequentialEngine;
 import com.nairb.ai130.common.exception.BusinessException;
 import com.nairb.ai130.domain.entity.AgentConfig;
+import com.nairb.ai130.domain.agent.AgentExecutionOptions;
 import com.nairb.ai130.domain.entity.AgentExecutionLog;
 import com.nairb.ai130.domain.entity.AgentFlowStep;
 import com.nairb.ai130.domain.repository.AgentConfigRepository;
@@ -11,9 +12,6 @@ import com.nairb.ai130.domain.repository.AgentExecutionLogRepository;
 import com.nairb.ai130.domain.repository.AgentFlowStepRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.ai.chat.client.ChatClient;
-import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.codec.ServerSentEvent;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -32,22 +30,16 @@ public class AgentAppService {
     private final AgentConfigRepository configRepo;
     private final AgentFlowStepRepository stepRepo;
     private final AgentExecutionLogRepository logRepo;
-    private final ChatClient primaryClient;
-    private final ChatClient fallbackClient;
-
-    @Value("${spring.deepseek.openai.chat.options.model:deepseek-v4-flash}")
-    private String fallbackModel;
+    private final EngineFactory engineFactory;
 
     public AgentAppService(AgentConfigRepository configRepo,
                            AgentFlowStepRepository stepRepo,
                            AgentExecutionLogRepository logRepo,
-                           @Qualifier("chatClient") ChatClient primaryClient,
-                           @Qualifier("deepseekChatClient") ChatClient fallbackClient) {
+                           EngineFactory engineFactory) {
         this.configRepo = configRepo;
         this.stepRepo = stepRepo;
         this.logRepo = logRepo;
-        this.primaryClient = primaryClient;
-        this.fallbackClient = fallbackClient;
+        this.engineFactory = engineFactory;
     }
 
     // ==================== Agent CRUD ====================
@@ -67,6 +59,7 @@ public class AgentAppService {
 
     @Transactional
     public AgentConfig create(AgentConfig config) {
+        normalizeLimits(config);
         configRepo.save(config);
         return config;
     }
@@ -75,6 +68,7 @@ public class AgentAppService {
     public AgentConfig update(String agentId, AgentConfig config) {
         getById(agentId); // 校验存在
         config.setAgentId(agentId);
+        normalizeLimits(config);
         configRepo.update(config);
         return config;
     }
@@ -86,6 +80,13 @@ public class AgentAppService {
         configRepo.deleteById(agentId);
     }
 
+    private void normalizeLimits(AgentConfig config) {
+        int maxRound = config.getMaxRound() != null ? config.getMaxRound() : 5;
+        int maxPace = config.getMaxPace() != null ? config.getMaxPace() : 10;
+        config.setMaxRound(Math.max(1, Math.min(maxRound, 20)));
+        config.setMaxPace(Math.max(1, Math.min(maxPace, 50)));
+    }
+
     // ==================== Flow Steps CRUD ====================
 
     public List<AgentFlowStep> getFlowSteps(String agentId) {
@@ -95,6 +96,10 @@ public class AgentAppService {
     @Transactional
     public List<AgentFlowStep> saveFlowSteps(String agentId, List<AgentFlowStep> steps) {
         getById(agentId); // 校验 Agent 存在
+        for (AgentFlowStep step : steps) {
+            int retryLimit = step.getRetryLimit() != null ? step.getRetryLimit() : 2;
+            step.setRetryLimit(Math.max(0, Math.min(retryLimit, 10)));
+        }
         stepRepo.replaceAll(agentId, steps);
         return steps;
     }
@@ -119,9 +124,10 @@ public class AgentAppService {
             throw new BusinessException(403, "Agent is disabled: " + agentId);
         }
 
-        // 2. 加载步骤
+        // 2. 选择执行引擎并加载可选步骤
+        ExecutionEngine engine = engineFactory.getEngine(agent.getStrategy());
         List<AgentFlowStep> steps = stepRepo.findByAgentId(agentId);
-        if (steps.isEmpty()) {
+        if ("normal".equals(engine.strategy()) && steps.isEmpty()) {
             throw new BusinessException(400, "Agent has no flow steps: " + agentId);
         }
 
@@ -135,13 +141,12 @@ public class AgentAppService {
         log.info("[{}] Agent execution started: logId={}, agentId={}, steps={}",
                 sessionId, logId, agentId, steps.size());
 
-        // 4. 选择执行引擎
-        ExecutionEngine engine = switch (agent.getStrategy() != null ? agent.getStrategy().toLowerCase() : "normal") {
-            default -> new SequentialEngine(primaryClient, fallbackClient, fallbackModel);
-        };
-
-        // 5. 执行并写入日志
-        return engine.execute(sessionId, userInput, steps, modelCode)
+        // 4. 执行并写入日志
+        AgentExecutionOptions options = new AgentExecutionOptions(
+                logId,
+                agent.getMaxRound() != null ? agent.getMaxRound() : 5,
+                agent.getMaxPace() != null ? agent.getMaxPace() : 10);
+        return engine.execute(sessionId, userInput, steps, modelCode, options)
                 .doOnComplete(() -> {
                     logRepo.updateResult(logId, "done", null, null, null);
                     log.info("[{}] Agent execution completed: logId={}", sessionId, logId);

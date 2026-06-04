@@ -10,6 +10,8 @@ public class AgentConfig {
     private String channel;
     private String strategy;
     private Integer status;
+    private Integer maxRound;
+    private Integer maxPace;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 
@@ -25,6 +27,10 @@ public class AgentConfig {
     public void setStrategy(String v) { strategy = v; }
     public Integer getStatus() { return status; }
     public void setStatus(Integer v) { status = v; }
+    public Integer getMaxRound() { return maxRound; }
+    public void setMaxRound(Integer v) { maxRound = v; }
+    public Integer getMaxPace() { return maxPace; }
+    public void setMaxPace(Integer v) { maxPace = v; }
     public LocalDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(LocalDateTime v) { createdAt = v; }
     public LocalDateTime getUpdatedAt() { return updatedAt; }

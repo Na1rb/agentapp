@@ -32,7 +32,7 @@ public class SearchAppService {
         } catch (Exception e) { log.warn("Vector search failed", e); }
 
         try {
-            String sql = "SELECT id, text FROM document_embeddings WHERE text ILIKE ?";
+            String sql = "SELECT id, content AS text FROM vector_store WHERE content ILIKE ?";
             List<Object> params = new ArrayList<>(); params.add("%" + query + "%");
             if (chatId != null && !chatId.isEmpty()) { sql += " AND metadata->>'chat_id' = ?"; params.add(chatId); }
             sql += " LIMIT ?"; params.add(topK);

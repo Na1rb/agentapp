@@ -6,7 +6,6 @@ import com.nairb.ai130.infrastructure.storage.LocalFileStorage;
 import com.nairb.ai130.types.dto.MessageVO;
 import com.nairb.ai130.types.dto.SessionInfoVO;
 import com.nairb.ai130.types.dto.SessionVO;
-import org.springframework.dao.EmptyResultDataAccessException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.core.io.Resource;
@@ -16,6 +15,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
+import java.sql.Timestamp;
 import java.util.List;
 
 @Service
@@ -34,18 +34,25 @@ public class SessionAppService {
      * 列出指定用户的会话（从 user_session 表查询）。
      */
     public List<SessionVO> list(long userId) {
-        String sql = "SELECT us.chat_id, us.title FROM user_session us WHERE us.user_id = ? ORDER BY us.updated_at DESC";
+        String sql = "SELECT us.chat_id, us.title, us.created_at, us.updated_at FROM user_session us WHERE us.user_id = ? ORDER BY us.updated_at DESC";
         try {
             return jdbc.query(sql, (rs, row) -> {
                 String chatId = rs.getString("chat_id");
                 String title = rs.getString("title");
+                Timestamp createdAt = rs.getTimestamp("created_at");
+                Timestamp updatedAt = rs.getTimestamp("updated_at");
                 Integer count = 0;
                 try {
                     count = jdbc.queryForObject(
-                            "SELECT COUNT(*) FROM document_embeddings WHERE metadata->>'chat_id' = ?",
+                            "SELECT COUNT(*) FROM vector_store WHERE metadata->>'chat_id' = ?",
                             Integer.class, chatId);
                 } catch (Exception ignored) {}
-                return new SessionVO(chatId, title, count != null ? count : 0);
+                return new SessionVO(
+                        chatId,
+                        title,
+                        createdAt != null ? createdAt.toInstant().toString() : null,
+                        updatedAt != null ? updatedAt.toInstant().toString() : null,
+                        count != null ? count : 0);
             }, userId);
         } catch (Exception e) {
             log.error("Failed to list sessions for userId={}", userId, e);
@@ -67,7 +74,7 @@ public class SessionAppService {
         Resource r = storage.getFile(chatId);
         if (r == null) return new SessionInfoVO(false);
         Integer count = 0;
-        try { count = jdbc.queryForObject("SELECT COUNT(*) FROM document_embeddings WHERE metadata->>'chat_id' = ?", Integer.class, chatId); } catch (Exception ignored) {}
+        try { count = jdbc.queryForObject("SELECT COUNT(*) FROM vector_store WHERE metadata->>'chat_id' = ?", Integer.class, chatId); } catch (Exception ignored) {}
         String name = r.getFilename();
         if (name != null && name.contains("-")) name = name.substring(name.indexOf("-") + 1);
         return new SessionInfoVO(chatId, name != null ? name : "unknown", count != null ? count : 0);
@@ -89,7 +96,11 @@ public class SessionAppService {
         // 更新 user_session 表
         int updated = jdbc.update("UPDATE user_session SET title = ?, updated_at = CURRENT_TIMESTAMP WHERE chat_id = ?",
                 newName.trim(), chatId);
-        if (updated == 0) throw new BusinessException(404, "session not found");
+        if (updated == 0) {
+            // 会话尚未同步到后端（本地新建但未发消息），静默成功
+            log.info("Session {} not yet persisted, rename skipped", chatId);
+            return;
+        }
         // 如果有物理文件也更新
         if (storage.hasFile(chatId)) {
             storage.renameFile(chatId, newName.trim());
@@ -101,22 +112,15 @@ public class SessionAppService {
     public void delete(String chatId) {
         if (chatId == null || chatId.isBlank()) throw new BusinessException(400, "chatId required");
 
-        // 检查是否存在
-        Integer sessionCount = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM user_session WHERE chat_id = ?", Integer.class, chatId);
-        boolean hasFile = storage.hasFile(chatId);
-        if ((sessionCount == null || sessionCount == 0) && !hasFile) {
-            throw new BusinessException(404, "session not found");
-        }
-
+        // 删除接口保持幂等：不存在的会话视为已经删除，不再返回 404。
         // 删除向量嵌入
-        jdbc.update("DELETE FROM document_embeddings WHERE metadata->>'chat_id' = ?", chatId);
+        jdbc.update("DELETE FROM vector_store WHERE metadata->>'chat_id' = ?", chatId);
         // 删除会话关联
         jdbc.update("DELETE FROM user_session WHERE chat_id = ?", chatId);
 
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
             @Override public void afterCommit() {
-                storage.deleteFile(chatId);
+                try { storage.deleteFile(chatId); } catch (Exception e) { log.error("Delete file failed", e); }
                 try { memory.clear(chatId); } catch (Exception e) { log.error("Clear memory failed", e); }
             }
         });

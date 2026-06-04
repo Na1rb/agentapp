@@ -106,7 +106,7 @@ public class DocumentAppService {
         }
         // 删除向量库中的嵌入
         try {
-            jdbc.update("DELETE FROM document_embeddings WHERE metadata->>'chat_id' = ?", chatId);
+            jdbc.update("DELETE FROM vector_store WHERE metadata->>'chat_id' = ?", chatId);
         } catch (Exception e) {
             log.warn("Failed to delete vector embeddings for chatId={}: {}", chatId, e.getMessage());
         }

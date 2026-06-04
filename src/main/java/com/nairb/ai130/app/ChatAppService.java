@@ -7,6 +7,7 @@ import com.nairb.ai130.api.dto.StepState;
 import com.nairb.ai130.app.advisor.StepOrchestrationAdvisor;
 import com.nairb.ai130.app.service.McpToolLoader;
 import com.nairb.ai130.app.service.StepStateManager;
+import com.nairb.ai130.app.workflow.WorkflowEngine;
 import com.nairb.ai130.common.enums.StepPhase;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -32,6 +33,7 @@ public class ChatAppService {
     private final McpToolLoader mcpToolLoader;
     private final StepStateManager stepStateManager;
     private final PromptTemplateService promptService;
+    private final WorkflowEngine workflowEngine;
 
     @Value("${spring.ai.openai.chat.options.model:qwen-plus}")
     private String primaryModel;
@@ -42,12 +44,14 @@ public class ChatAppService {
                           @Qualifier("deepseekChatClient") ChatClient fallbackClient,
                           McpToolLoader mcpToolLoader,
                           StepStateManager stepStateManager,
-                          PromptTemplateService promptService) {
+                          PromptTemplateService promptService,
+                          WorkflowEngine workflowEngine) {
         this.primaryClient = primaryClient;
         this.fallbackClient = fallbackClient;
         this.mcpToolLoader = mcpToolLoader;
         this.stepStateManager = stepStateManager;
         this.promptService = promptService;
+        this.workflowEngine = workflowEngine;
     }
 
     // ==================== 公开方法 ====================
@@ -58,7 +62,7 @@ public class ChatAppService {
      * 流式对话（无工具，无 modelCode — 兜底用）。
      */
     public Flux<String> streamChat(String prompt, String sessionId) {
-        return streamChat(prompt, sessionId, Collections.emptyList(), null, null);
+        return streamChat(prompt, sessionId, Collections.emptyList(), null, null, null);
     }
 
     // ==================== 主入口: 支持 modelCode + promptCode ====================
@@ -76,17 +80,18 @@ public class ChatAppService {
      *
      * @param modelCode  前端选中的模型 code；为 null 时使用默认主模型
      * @param promptCode 角色模板 code；为 null 时使用默认「通用助手」
+     * @param chatMode   对话模式：normal 普通模式 / rag 知识库模式（预留，后续 RAG 实现使用）
      */
     public Flux<String> streamChat(String prompt, String sessionId, List<String> toolIds,
-                                    String modelCode, String promptCode) {
+                                    String modelCode, String promptCode, String chatMode) {
         List<FunctionToolCallback<String, String>> tools = (toolIds != null && !toolIds.isEmpty())
                 ? mcpToolLoader.loadTools(toolIds)
                 : Collections.emptyList();
 
         String resolvedModel = (modelCode != null) ? modelCode : primaryModel;
         String systemText = promptService.getPrompt(promptCode);
-        log.info("streamChat session={}, model={}, promptCode={}, tools={}", sessionId, resolvedModel,
-                promptCode,
+        log.info("streamChat session={}, model={}, promptCode={}, chatMode={}, tools={}", sessionId, resolvedModel,
+                promptCode, chatMode,
                 tools.stream().map(t -> t.getToolDefinition().name()).toList());
 
         ChatClient client = resolveClient(resolvedModel);
@@ -128,8 +133,10 @@ public class ChatAppService {
     /**
      * 分步编排流式对话（STEP_CHECK 策略）。
      * <p>
-     * 按照 ANALYZE → EXECUTE → CHECK → LOOP 状态机分步执行，
-     * 每个步骤通过 SSE 命名事件通知前端进度。
+     * 使用 WorkflowEngine（DAG 有向图引擎）替代旧的状态机实现，
+     * 支持条件回退、并行执行、断点续跑。
+     * <p>
+     * 默认使用 {@code default-step-check} 工作流模板，可通过策略参数扩展。
      *
      * @param prompt     用户输入
      * @param sessionId  会话 ID
@@ -141,21 +148,26 @@ public class ChatAppService {
     public Flux<ServerSentEvent<String>> streamChatWithSteps(String prompt, String sessionId,
                                                               List<String> toolIds, String modelCode,
                                                               String promptCode) {
-        List<FunctionToolCallback<String, String>> tools = (toolIds != null && !toolIds.isEmpty())
-                ? mcpToolLoader.loadTools(toolIds)
-                : Collections.emptyList();
-
-        String resolvedModel = (modelCode != null) ? modelCode : primaryModel;
-        String systemText = promptService.getPrompt(promptCode);
         log.info("streamChatWithSteps session={}, model={}, promptCode={}, tools={}",
-                sessionId, resolvedModel, promptCode,
-                tools.stream().map(t -> t.getToolDefinition().name()).toList());
+                sessionId, modelCode, promptCode,
+                toolIds != null ? toolIds : List.of());
 
-        // 初始化步骤状态
-        stepStateManager.getOrInit(sessionId, "STEP_CHECK");
+        // 委托给 WorkflowEngine — DAG 图引擎
+        return workflowEngine.start("default-step-check", prompt, sessionId);
+    }
 
-        // 开始编排循环
-        return orchestrateStep(prompt, sessionId, tools, resolvedModel, systemText);
+    public Flux<ServerSentEvent<String>> streamChatWithSteps(String prompt, String sessionId,
+                                                              List<String> toolIds, String modelCode,
+                                                              String promptCode, String workflowDefId) {
+        String resolvedWorkflowDefId = (workflowDefId != null && !workflowDefId.isBlank())
+                ? workflowDefId
+                : "default-step-check";
+
+        log.info("streamChatWithSteps session={}, model={}, promptCode={}, workflowDefId={}, tools={}",
+                sessionId, modelCode, promptCode, resolvedWorkflowDefId,
+                toolIds != null ? toolIds : List.of());
+
+        return workflowEngine.start(resolvedWorkflowDefId, prompt, sessionId);
     }
 
     // ==================== 编排循环 ====================

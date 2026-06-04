@@ -20,8 +20,15 @@ public class AgentExecutionLogRepository {
 
     public void updateResult(long id, String status, String stepResults, Integer totalTokens, String errorMsg) {
         jdbc.update("""
-            UPDATE agent_execution_log SET status=?, step_results=?, total_tokens=?, error_msg=?, finished_at=NOW()
+            UPDATE agent_execution_log
+            SET status=?, step_results=COALESCE(?, step_results), total_tokens=?, error_msg=?, finished_at=NOW()
             WHERE id=?
             """, status, stepResults, totalTokens, errorMsg, id);
+    }
+
+    public void updateStepResults(long id, String stepResults) {
+        jdbc.update("""
+            UPDATE agent_execution_log SET step_results=? WHERE id=?
+            """, stepResults, id);
     }
 }

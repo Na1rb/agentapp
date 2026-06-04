@@ -1,6 +1,7 @@
 package com.nairb.ai130.agent.engine;
 
 import com.nairb.ai130.domain.entity.AgentFlowStep;
+import com.nairb.ai130.domain.agent.AgentExecutionOptions;
 import org.springframework.http.codec.ServerSentEvent;
 import reactor.core.publisher.Flux;
 
@@ -18,6 +19,10 @@ import java.util.List;
  */
 public interface ExecutionEngine {
 
+    default String strategy() {
+        return "normal";
+    }
+
     /**
      * 执行 Agent 流程，返回 SSE 事件流。
      *
@@ -31,4 +36,20 @@ public interface ExecutionEngine {
                                            String userInput,
                                            List<AgentFlowStep> steps,
                                            String modelCode);
+
+    default Flux<ServerSentEvent<String>> execute(String sessionId,
+                                                   String userInput,
+                                                   List<AgentFlowStep> steps,
+                                                   String modelCode,
+                                                   Long executionLogId) {
+        return execute(sessionId, userInput, steps, modelCode);
+    }
+
+    default Flux<ServerSentEvent<String>> execute(String sessionId,
+                                                   String userInput,
+                                                   List<AgentFlowStep> steps,
+                                                   String modelCode,
+                                                   AgentExecutionOptions options) {
+        return execute(sessionId, userInput, steps, modelCode, options.executionLogId());
+    }
 }

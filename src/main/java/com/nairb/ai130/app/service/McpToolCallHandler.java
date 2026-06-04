@@ -24,7 +24,7 @@ public final class McpToolCallHandler {
      */
     public static String timeoutFallback(String toolName) {
         return String.format(
-                "{\"error\":\"工具调用超时\",\"tool\":\"%s\",\"message\":\"工具 '%s' 在等待 %.0f 秒后未响应，请稍后重试或换一种方式查询。\"}",
+                "{\"success\":false,\"status\":\"error\",\"errorType\":\"timeout\",\"retryable\":true,\"error\":\"工具调用超时\",\"tool\":\"%s\",\"message\":\"工具 '%s' 在等待 %.0f 秒后未响应，请稍后重试或换一种方式查询。\"}",
                 toolName, toolName, 15.0);
     }
 
@@ -37,8 +37,8 @@ public final class McpToolCallHandler {
      */
     public static String upstreamErrorFallback(String toolName, int httpCode) {
         return String.format(
-                "{\"error\":\"上游服务异常\",\"tool\":\"%s\",\"code\":%d,\"message\":\"工具 '%s' 的上游服务返回了 HTTP %d 错误，该工具暂时不可用。\"}",
-                toolName, httpCode, toolName, httpCode);
+                "{\"success\":false,\"status\":\"error\",\"errorType\":\"upstream_http\",\"retryable\":%s,\"error\":\"上游服务异常\",\"tool\":\"%s\",\"code\":%d,\"message\":\"工具 '%s' 的上游服务返回了 HTTP %d 错误，该工具暂时不可用。\"}",
+                httpCode >= 500, toolName, httpCode, toolName, httpCode);
     }
 
     /**
@@ -51,7 +51,7 @@ public final class McpToolCallHandler {
     public static String internalErrorFallback(String toolName, String detail) {
         String safeDetail = detail != null ? detail.replace("\"", "'") : "未知错误";
         return String.format(
-                "{\"error\":\"内部错误\",\"tool\":\"%s\",\"message\":\"工具 '%s' 执行时发生内部错误：%s\"}",
+                "{\"success\":false,\"status\":\"error\",\"errorType\":\"internal\",\"retryable\":false,\"error\":\"内部错误\",\"tool\":\"%s\",\"message\":\"工具 '%s' 执行时发生内部错误：%s\"}",
                 toolName, toolName, safeDetail);
     }
 }

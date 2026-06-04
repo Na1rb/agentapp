@@ -1,6 +1,8 @@
 package com.nairb.ai130.api;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nairb.ai130.app.AgentAppService;
+import com.nairb.ai130.app.agent.MatchChecker;
 import com.nairb.ai130.common.exception.BusinessException;
 import com.nairb.ai130.common.response.ApiResponse;
 import com.nairb.ai130.domain.entity.AgentConfig;
@@ -23,9 +25,12 @@ public class AgentController {
 
     private static final Logger log = LoggerFactory.getLogger(AgentController.class);
     private final AgentAppService agentService;
+    private final MatchChecker matchChecker;
+    private final ObjectMapper mapper = new ObjectMapper();
 
-    public AgentController(AgentAppService agentService) {
+    public AgentController(AgentAppService agentService, MatchChecker matchChecker) {
         this.agentService = agentService;
+        this.matchChecker = matchChecker;
     }
 
     // ==================== 前台 ====================
@@ -50,7 +55,26 @@ public class AgentController {
         Long userId = body.get("userId") instanceof Number ? ((Number) body.get("userId")).longValue() : null;
 
         log.info("Agent execute: agentId={}, sessionId={}, modelCode={}", agentId, sessionId, modelCode);
+        AgentConfig agent = agentService.getById(agentId);
+        MatchChecker.MatchResult match = matchChecker.check(agent.getStrategy(), message);
+        if (!match.matched()) {
+            return Flux.just(ServerSentEvent.<String>builder()
+                    .event("done")
+                    .data(json(Map.of(
+                            "final_answer", match.suggestion(),
+                            "matched", false,
+                            "strategy", agent.getStrategy())))
+                    .build());
+        }
         return agentService.execute(agentId, sessionId, message, modelCode, userId);
+    }
+
+    private String json(Object value) {
+        try {
+            return mapper.writeValueAsString(value);
+        } catch (Exception e) {
+            return "{}";
+        }
     }
 
     // ==================== 管理端: Agent CRUD ====================

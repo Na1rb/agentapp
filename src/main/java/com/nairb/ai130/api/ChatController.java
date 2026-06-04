@@ -36,12 +36,25 @@ public class ChatController {
                               @RequestParam(value = "toolIds", required = false) List<String> toolIds,
                               @RequestParam(value = "modelCode", required = false) String modelCode,
                               @RequestParam(value = "promptCode", required = false) String promptCode,
-                              @RequestParam(value = "strategy", required = false) String strategy) {
+                              @RequestParam(value = "strategy", required = false) String strategy,
+                              @RequestParam(value = "workflowDefId", required = false) String workflowDefId,
+                              @RequestParam(value = "chatMode", required = false) String chatMode,
+                              @RequestParam(value = "mode", required = false) String mode,
+                              @RequestParam(value = "rag", required = false) String rag) {
         String sessionId = (chatId != null && !chatId.isEmpty()) ? chatId : UUID.randomUUID().toString();
         String selectedModel = (modelCode != null && !modelCode.isBlank()) ? modelCode : null;
 
-        log.info("GET /api/dchat session={}, userId={}, prompt={}, tools={}, model={}, promptCode={}, strategy={}",
-                sessionId, userId, prompt, toolIds, selectedModel, promptCode, strategy);
+        // 兼容多种参数：chatMode / mode / rag，优先级 chatMode > mode > rag
+        String resolvedChatMode = chatMode;
+        if (resolvedChatMode == null || resolvedChatMode.isBlank()) {
+            resolvedChatMode = mode;
+        }
+        if ((resolvedChatMode == null || resolvedChatMode.isBlank()) && "true".equalsIgnoreCase(rag)) {
+            resolvedChatMode = "rag";
+        }
+
+        log.info("GET /api/dchat session={}, userId={}, prompt={}, tools={}, model={}, promptCode={}, strategy={}, workflowDefId={}, chatMode={}",
+                sessionId, userId, prompt, toolIds, selectedModel, promptCode, strategy, workflowDefId, resolvedChatMode);
 
         // 自动创建用户会话关联
         ensureUserSession(userId, sessionId, prompt);
@@ -49,12 +62,12 @@ public class ChatController {
         // 分步编排模式
         if ("STEP_CHECK".equalsIgnoreCase(strategy)) {
             return chatService.streamChatWithSteps(prompt, sessionId,
-                    toolIds != null ? toolIds : List.of(), selectedModel, promptCode);
+                    toolIds != null ? toolIds : List.of(), selectedModel, promptCode, workflowDefId);
         }
 
         // 默认流式模式：将纯文本包装为 ServerSentEvent（无 event 字段，即 data: 行）
         List<String> safeToolIds = toolIds != null ? toolIds : List.of();
-        return chatService.streamChat(prompt, sessionId, safeToolIds, selectedModel, promptCode)
+        return chatService.streamChat(prompt, sessionId, safeToolIds, selectedModel, promptCode, resolvedChatMode)
                 .map(s -> ServerSentEvent.<String>builder().data(s).build());
     }
 
@@ -69,21 +82,23 @@ public class ChatController {
         String strategy = request.getStrategy();
         String modelCode = request.getModelCode();
         String promptCode = request.getPromptCode();
+        String chatMode = request.getChatMode();
+        String workflowDefId = request.getWorkflowDefId();
         String selectedModel = (modelCode != null && !modelCode.isBlank()) ? modelCode : null;
 
-        log.info("POST /api/chat session={}, userId={}, prompt={}, tools={}, model={}, promptCode={}, strategy={}",
-                sessionId, request.getUserId(), request.getPrompt(), toolIds, selectedModel, promptCode, strategy);
+        log.info("POST /api/chat session={}, userId={}, prompt={}, tools={}, model={}, promptCode={}, strategy={}, workflowDefId={}, chatMode={}",
+                sessionId, request.getUserId(), request.getPrompt(), toolIds, selectedModel, promptCode, strategy, workflowDefId, chatMode);
 
         // 自动创建用户会话关联
         ensureUserSession(request.getUserId(), sessionId, request.getPrompt());
 
         // 分步编排模式
         if ("STEP_CHECK".equalsIgnoreCase(strategy)) {
-            return chatService.streamChatWithSteps(request.getPrompt(), sessionId, toolIds, selectedModel, promptCode);
+            return chatService.streamChatWithSteps(request.getPrompt(), sessionId, toolIds, selectedModel, promptCode, workflowDefId);
         }
 
         // 默认流式模式：将纯文本包装为 ServerSentEvent
-        return chatService.streamChat(request.getPrompt(), sessionId, toolIds, selectedModel, promptCode)
+        return chatService.streamChat(request.getPrompt(), sessionId, toolIds, selectedModel, promptCode, chatMode)
                 .map(s -> ServerSentEvent.<String>builder().data(s).build());
     }
 

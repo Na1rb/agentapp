@@ -16,6 +16,7 @@ public class AgentFlowStep {
     private String outputKey;
     private String onError;         // abort / retry / fallback_to_step
     private String fallbackStep;
+    private Integer retryLimit;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 
@@ -43,6 +44,8 @@ public class AgentFlowStep {
     public void setOnError(String v) { onError = v; }
     public String getFallbackStep() { return fallbackStep; }
     public void setFallbackStep(String v) { fallbackStep = v; }
+    public Integer getRetryLimit() { return retryLimit; }
+    public void setRetryLimit(Integer v) { retryLimit = v; }
     public LocalDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(LocalDateTime v) { createdAt = v; }
     public LocalDateTime getUpdatedAt() { return updatedAt; }

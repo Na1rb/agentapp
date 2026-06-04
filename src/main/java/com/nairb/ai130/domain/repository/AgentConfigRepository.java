@@ -26,6 +26,8 @@ public class AgentConfigRepository {
         a.setChannel(rs.getString("channel"));
         a.setStrategy(rs.getString("strategy"));
         a.setStatus(rs.getInt("status"));
+        a.setMaxRound(rs.getInt("max_round"));
+        a.setMaxPace(rs.getInt("max_pace"));
         a.setCreatedAt(rs.getTimestamp("created_at") != null ? rs.getTimestamp("created_at").toLocalDateTime() : null);
         a.setUpdatedAt(rs.getTimestamp("updated_at") != null ? rs.getTimestamp("updated_at").toLocalDateTime() : null);
         return a;
@@ -49,19 +51,26 @@ public class AgentConfigRepository {
 
     public void save(AgentConfig a) {
         jdbc.update("""
-            INSERT INTO agent_config (agent_id, agent_name, description, channel, strategy, status)
-            VALUES (?,?,?,?,?,?)
-            """, a.getAgentId(), a.getAgentName(), a.getDescription(), a.getChannel(), a.getStrategy(), a.getStatus());
+            INSERT INTO agent_config (agent_id, agent_name, description, channel, strategy, status, max_round, max_pace)
+            VALUES (?,?,?,?,?,?,?,?)
+            """, a.getAgentId(), a.getAgentName(), a.getDescription(), a.getChannel(), a.getStrategy(), a.getStatus(),
+                valueOrDefault(a.getMaxRound(), 5), valueOrDefault(a.getMaxPace(), 10));
     }
 
     public void update(AgentConfig a) {
         jdbc.update("""
-            UPDATE agent_config SET agent_name=?, description=?, channel=?, strategy=?, status=?, updated_at=NOW()
+            UPDATE agent_config SET agent_name=?, description=?, channel=?, strategy=?, status=?,
+                max_round=?, max_pace=?, updated_at=NOW()
             WHERE agent_id=?
-            """, a.getAgentName(), a.getDescription(), a.getChannel(), a.getStrategy(), a.getStatus(), a.getAgentId());
+            """, a.getAgentName(), a.getDescription(), a.getChannel(), a.getStrategy(), a.getStatus(),
+                valueOrDefault(a.getMaxRound(), 5), valueOrDefault(a.getMaxPace(), 10), a.getAgentId());
     }
 
     public void deleteById(String agentId) {
         jdbc.update("DELETE FROM agent_config WHERE agent_id = ?", agentId);
+    }
+
+    private int valueOrDefault(Integer value, int defaultValue) {
+        return value != null ? value : defaultValue;
     }
 }

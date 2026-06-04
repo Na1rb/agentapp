@@ -29,6 +29,7 @@ public class AgentFlowStepRepository {
         s.setOutputKey(rs.getString("output_key"));
         s.setOnError(rs.getString("on_error"));
         s.setFallbackStep(rs.getString("fallback_step"));
+        s.setRetryLimit(rs.getInt("retry_limit"));
         return s;
     };
 
@@ -42,11 +43,11 @@ public class AgentFlowStepRepository {
         for (AgentFlowStep s : steps) {
             jdbc.update("""
                 INSERT INTO agent_flow_step (agent_id, step_id, sequence, client_type, client_name, client_id,
-                    step_prompt, input_mapping, output_key, on_error, fallback_step)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?)
+                    step_prompt, input_mapping, output_key, on_error, fallback_step, retry_limit)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
                 """, agentId, s.getStepId(), s.getSequence(), s.getClientType(), s.getClientName(),
                 s.getClientId(), s.getStepPrompt(), s.getInputMapping(), s.getOutputKey(),
-                s.getOnError(), s.getFallbackStep());
+                s.getOnError(), s.getFallbackStep(), s.getRetryLimit() != null ? s.getRetryLimit() : 2);
         }
     }
 
